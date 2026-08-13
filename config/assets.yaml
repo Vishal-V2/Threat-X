@@ -1,0 +1,21 @@
+# Maps a scanned host/asset to its business criticality, ticket owner, and team.
+# `host` values here must match the `host` field parsers emit in ingest/*_parser.py
+# (container name or resolved IP — keep this in sync with scripts/setup_target.sh).
+assets:
+  juice-shop:
+    criticality: high
+    owner: "@appsec-lead"
+    team: "AppSec"
+  localhost:
+    criticality: high
+    owner: "@appsec-lead"
+    team: "AppSec"
+  metasploitable:
+    criticality: medium
+    owner: "@netsec-lead"
+    team: "NetSec"
+
+default:
+  criticality: unknown
+  owner: "@triage"
+  team: "Unassigned"

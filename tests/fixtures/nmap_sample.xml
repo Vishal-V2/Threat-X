@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<nmaprun scanner="nmap" args="nmap -sV -sC --script vuln,vulners -oX scan.xml 172.19.0.2 172.19.0.3">
+  <host>
+    <status state="up"/>
+    <address addr="172.19.0.2" addrtype="ipv4"/>
+    <hostnames>
+      <hostname name="juice-shop" type="user"/>
+    </hostnames>
+    <ports>
+      <port protocol="tcp" portid="3000">
+        <state state="open"/>
+        <service name="http" product="Node.js Express framework"/>
+        <script id="vulners" output="  cpe:/a:nodejs:node.js:\n&#9;CVE-2021-44228&#9;10.0&#9;https://vulners.com/cve/CVE-2021-44228&#9;*EXPLOIT*\n"/>
+      </port>
+    </ports>
+  </host>
+  <host>
+    <status state="up"/>
+    <address addr="172.19.0.3" addrtype="ipv4"/>
+    <hostnames>
+      <hostname name="metasploitable" type="user"/>
+    </hostnames>
+    <ports>
+      <port protocol="tcp" portid="21">
+        <state state="open"/>
+        <service name="ftp" product="vsftpd" version="2.3.4"/>
+        <script id="vulners" output="  cpe:/a:vsftpd:vsftpd:2.3.4:\n&#9;CVE-2011-2523&#9;10.0&#9;https://vulners.com/cve/CVE-2011-2523&#9;*EXPLOIT*\n"/>
+      </port>
+      <port protocol="tcp" portid="3632">
+        <state state="open"/>
+        <service name="distccd" product="distccd"/>
+        <script id="vulners" output="&#9;CVE-2004-2687&#9;7.5&#9;https://vulners.com/cve/CVE-2004-2687\n"/>
+      </port>
+      <port protocol="tcp" portid="445">
+        <state state="open"/>
+        <service name="netbios-ssn" product="Samba smbd" version="3.X"/>
+        <script id="smb-vuln-cve-2017-7494" output="\n  VULNERABLE:\n  SAMBA Remote Code Execution from Writable Share\n    State: VULNERABLE\n    IDs:  CVE-2017-7494\n"/>
+      </port>
+    </ports>
+  </host>
+</nmaprun>

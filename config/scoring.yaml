@@ -1,0 +1,54 @@
+# Dedup thresholds (dedup/fuzzy.py)
+dedup:
+  fuzzy_auto_merge_threshold: 90   # rapidfuzz token_sort_ratio >= this -> auto-merge
+  fuzzy_candidate_threshold: 65    # >= this and < auto_merge -> sent to the LLM semantic pass
+
+# Deterministic scoring weights (score/formula.py). Must sum to <= 1.0 across the three
+# weighted components; kev_boost/exploitdb_boost are additive on top, not part of the
+# weighted sum, then the total is clipped to [0, 100]. CVSS is deliberately capped well
+# below 100% of the weight so the score is driven by real threat intel (EPSS/KEV/asset
+# criticality), not raw CVSS alone.
+weights:
+  cvss: 0.35
+  epss: 0.25
+  asset_criticality: 0.15
+
+kev_boost: 20
+exploitdb_boost: 10   # only applied if not already boosted by KEV, to avoid double-counting
+
+asset_criticality_scores:
+  critical: 100
+  high: 75
+  medium: 50
+  low: 25
+  unknown: 50
+
+# CVE-less findings (most ZAP alerts, many Nuclei exposure/tech-detect templates) fall
+# back to a pseudo-CVSS derived from the scanner's own severity label.
+severity_fallback_cvss:
+  critical: 9.5
+  high: 7.5
+  medium: 5.0
+  low: 2.5
+  info: 0.5
+  informational: 0.5
+
+# score -> SLA tier -> remediation window. Evaluated top-down, first match wins.
+sla_tiers:
+  - min: 90
+    tier: critical
+    sla_days: 3
+  - min: 70
+    tier: high
+    sla_days: 7
+  - min: 40
+    tier: medium
+    sla_days: 30
+  - min: 0
+    tier: low
+    sla_days: 90
+
+# Ticketing (ticket/github_issues.py)
+ticketing:
+  min_score_to_ticket: 70
+  top_n: 25

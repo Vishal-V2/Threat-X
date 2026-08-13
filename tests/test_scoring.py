@@ -1,0 +1,53 @@
+from common.config import load_yaml
+from ingest.schema import Finding
+from score.formula import score_finding
+from score.sla import sla_for_score
+
+CFG = load_yaml("scoring.yaml")
+
+
+def _finding(**kwargs) -> Finding:
+    defaults = dict(scan_id="test", source_scanner="nuclei", host="h", title="t",
+                     scanner_severity="high")
+    defaults.update(kwargs)
+    return Finding(**defaults)
+
+
+def test_score_is_clipped_to_0_100():
+    f = _finding(cvss_v3_score=10.0, epss_score=1.0, in_kev=True, exploit_db_available=True)
+    score, breakdown = score_finding(f, CFG, criticality="critical")
+    assert 0.0 <= score <= 100.0
+    assert breakdown["final_score"] == score
+
+
+def test_kev_and_exploitdb_boosts_dont_double_count():
+    base = _finding(cvss_v3_score=5.0, epss_score=0.1, in_kev=True, exploit_db_available=True)
+    score_with_both, breakdown = score_finding(base, CFG, criticality="medium")
+    assert breakdown["kev_boost"] == CFG["kev_boost"]
+    assert breakdown["exploitdb_boost"] == 0.0  # suppressed because KEV already applied
+
+
+def test_low_epss_finding_scores_lower_than_high_epss_despite_equal_cvss():
+    """This is the 'not raw CVSS alone' criterion in miniature: two findings with
+    identical CVSS but different real-world exploitation likelihood must not
+    score the same."""
+    low_epss = _finding(cvss_v3_score=9.0, epss_score=0.02)
+    high_epss = _finding(cvss_v3_score=9.0, epss_score=0.95)
+    score_low, _ = score_finding(low_epss, CFG, criticality="medium")
+    score_high, _ = score_finding(high_epss, CFG, criticality="medium")
+    assert score_high > score_low
+
+
+def test_asset_criticality_moves_the_score():
+    f_low_asset = _finding(cvss_v3_score=6.0, epss_score=0.3)
+    f_high_asset = _finding(cvss_v3_score=6.0, epss_score=0.3)
+    score_low, _ = score_finding(f_low_asset, CFG, criticality="low")
+    score_high, _ = score_finding(f_high_asset, CFG, criticality="critical")
+    assert score_high > score_low
+
+
+def test_sla_tier_boundaries():
+    assert sla_for_score(95, CFG) == ("critical", 3)
+    assert sla_for_score(70, CFG) == ("high", 7)
+    assert sla_for_score(69.9, CFG) == ("medium", 30)
+    assert sla_for_score(0, CFG) == ("low", 90)

@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+
+data/raw/
+data/normalized/
+data/processed/
+data/cache/
+data/runs/
+!data/**/.gitkeep

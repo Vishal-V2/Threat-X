@@ -1,0 +1,58 @@
+{
+  "@version": "2.14.0",
+  "@generated": "Thu, 13 Aug 2026 10:05:00",
+  "site": [
+    {
+      "@name": "http://juice-shop:3000",
+      "@host": "juice-shop",
+      "@port": "3000",
+      "alerts": [
+        {
+          "pluginid": "10038",
+          "name": "Content Security Policy (CSP) Header Not Set",
+          "riskdesc": "Medium (High)",
+          "desc": "CSP is an added layer of security that helps to detect and mitigate certain types of attacks.",
+          "cweid": "693",
+          "reference": "https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP",
+          "instances": [{"uri": "http://juice-shop:3000/", "method": "GET", "param": "", "evidence": ""}]
+        },
+        {
+          "pluginid": "10021",
+          "name": "X-Content-Type-Options Header Missing",
+          "riskdesc": "Low (Medium)",
+          "desc": "The Anti-MIME-Sniffing header X-Content-Type-Options was not set.",
+          "cweid": "693",
+          "reference": "https://owasp.org/",
+          "instances": [{"uri": "http://juice-shop:3000/", "method": "GET", "param": "", "evidence": ""}]
+        },
+        {
+          "pluginid": "10003",
+          "name": "Vulnerable JS Library - Lodash",
+          "riskdesc": "Medium (High)",
+          "desc": "The identified library Lodash appears to be vulnerable to prototype pollution. See CVE-2019-10744 for details.",
+          "cweid": "1035",
+          "reference": "https://nvd.nist.gov/vuln/detail/CVE-2019-10744",
+          "instances": [{"uri": "http://juice-shop:3000/vendor/lodash.js", "method": "GET", "param": "", "evidence": "lodash 4.17.11"}]
+        },
+        {
+          "pluginid": "10036",
+          "name": "X-Powered-By Header Information Leak",
+          "riskdesc": "Low (Medium)",
+          "desc": "The web/application server is leaking information via the X-Powered-By HTTP response header.",
+          "cweid": "200",
+          "reference": "https://owasp.org/",
+          "instances": [{"uri": "http://juice-shop:3000/", "method": "GET", "param": "", "evidence": "X-Powered-By: Express"}]
+        },
+        {
+          "pluginid": "10056",
+          "name": "Missing Content-Security-Policy Header on Root",
+          "riskdesc": "Low (Medium)",
+          "desc": "No Content-Security-Policy header was found protecting against XSS and data injection attacks.",
+          "cweid": "693",
+          "reference": "https://owasp.org/",
+          "instances": [{"uri": "http://juice-shop:3000/", "method": "GET", "param": "", "evidence": ""}]
+        }
+      ]
+    }
+  ]
+}

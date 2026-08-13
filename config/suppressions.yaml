@@ -1,0 +1,20 @@
+# False-positive / accepted-risk suppression rules, applied in dedup/suppress.py
+# after deduplication. Each rule needs a `reason` (surfaced in the dashboard/tickets
+# for auditability) and a `match` block. Supported match keys: cve_id, template_id
+# (glob), host, title_regex. A finding is suppressed if ALL keys in a rule's `match`
+# block match.
+suppressions:
+  - match:
+      title_regex: "(?i)x-powered-by"
+    reason: "Informational tech-disclosure header, not independently actionable."
+
+  - match:
+      title_regex: "(?i)(missing|no) .*cache-control"
+    reason: "Accepted risk on demo target — low-impact caching header, not remediated for the hackathon."
+
+# Blanket thresholds applied on top of explicit rules above.
+defaults:
+  min_confidence: low          # ZAP confidence below this is auto-suppressed
+  exclude_severities:
+    - info
+    - informational
