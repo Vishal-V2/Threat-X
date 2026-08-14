@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from google.genai import types
 
-from ai.client import DEFAULT_MODEL, get_client
+from ai.client import DEFAULT_MODEL, generate_content
 from ingest.schema import Finding
 
 _SYSTEM = ("You write one-sentence, plain-English risk explanations for security "
@@ -25,7 +25,7 @@ def summarize_finding(f: Finding) -> str:
         f"Public exploit available (Exploit-DB): {f.exploit_db_available}",
         f"Risk score: {f.risk_score}/100",
     ]
-    response = get_client().models.generate_content(
+    response = generate_content(
         model=DEFAULT_MODEL,
         contents="\n".join(facts),
         config=types.GenerateContentConfig(system_instruction=_SYSTEM, max_output_tokens=150),

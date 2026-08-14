@@ -6,12 +6,15 @@ this just chains them for the one-command demo path (see scripts/demo.sh).
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
+from urllib.parse import urlparse
 
 import click
 from dotenv import load_dotenv
 
 from common.config import scoring_config
-from common.paths import final_scored_path, normalized_path
+from common.paths import final_scored_path, normalized_path, raw_dir
 from dedup.pipeline import run_dedup_phase
 from enrich.enrich_pipeline import run_enrich_phase
 from ingest.run_scanners import ingest as run_ingest
@@ -27,21 +30,67 @@ def cli():
     """Threat-X: risk prioritization & deduplication pipeline."""
 
 
+def _check_live_scan_prereqs() -> None:
+    missing = []
+    if shutil.which("nuclei") is None:
+        missing.append("nuclei (https://docs.projectdiscovery.io/tools/nuclei/install)")
+    if shutil.which("nmap") is None:
+        missing.append("nmap (apt install nmap / brew install nmap)")
+    try:
+        subprocess.run(["docker", "info"], capture_output=True, check=True, timeout=10)
+    except Exception:
+        missing.append("a running Docker daemon (needed for the ZAP container)")
+    if missing:
+        raise click.UsageError(
+            "Missing prerequisites for a live scan:\n  - " + "\n  - ".join(missing) +
+            "\n\n(You can still exercise the pipeline without these via --use-fixtures)"
+        )
+
+
 @cli.command(name="ingest")
 @click.option("--scan-id", required=True)
 @click.option("--nuclei-path", default=None)
 @click.option("--nmap-path", default=None)
 @click.option("--zap-path", default=None)
 @click.option("--use-fixtures", is_flag=True, help="Ingest from tests/fixtures/ instead of live scan output")
-def ingest_cmd(scan_id, nuclei_path, nmap_path, zap_path, use_fixtures):
-    if use_fixtures:
+@click.option("--target-url", default=None,
+              help="Run a live scan (Nuclei+Nmap+ZAP) against this URL first, then ingest its output")
+@click.option("--nmap-target", multiple=True,
+              help="Extra host/IP for Nmap (repeatable); defaults to --target-url's hostname")
+@click.option("--fast", is_flag=True,
+              help="Trim scanner scope for a much quicker (less thorough) live scan")
+def ingest_cmd(scan_id, nuclei_path, nmap_path, zap_path, use_fixtures, target_url, nmap_target, fast):
+    if target_url:
+        if use_fixtures or nuclei_path or nmap_path or zap_path:
+            raise click.UsageError("--target-url can't be combined with --use-fixtures or explicit --*-path options.")
+
+        _check_live_scan_prereqs()
+        from ingest.run_scanners import run_scanners
+
+        host = urlparse(target_url).hostname
+        if not host:
+            raise click.UsageError(f"Couldn't parse a hostname out of '{target_url}' — "
+                                    "pass a full URL, e.g. https://example.com")
+        targets = list(nmap_target) or [host]
+
+        subprocess.run(["docker", "network", "create", "threatx-net"], capture_output=True)
+        click.echo(f"Scanning {target_url} (host: {host}){' [fast mode]' if fast else ''}...")
+        run_scanners(scan_id, target_url, targets, fast=fast)
+
+        raw = raw_dir(scan_id)
+        nuclei_path = str(raw / "nuclei" / "juice-shop.jsonl")
+        nmap_path = str(raw / "nmap" / "scan.xml")
+        zap_path = str(raw / "zap" / "zap-report.json")
+    elif use_fixtures:
         nuclei_path = nuclei_path or "tests/fixtures/nuclei_sample.jsonl"
         nmap_path = nmap_path or "tests/fixtures/nmap_sample.xml"
         zap_path = zap_path or "tests/fixtures/zap_sample.json"
+
     missing = [n for n, p in [("--nuclei-path", nuclei_path), ("--nmap-path", nmap_path),
                               ("--zap-path", zap_path)] if not p]
     if missing:
-        raise click.UsageError(f"Missing required paths: {', '.join(missing)} (or pass --use-fixtures)")
+        raise click.UsageError(f"Missing required paths: {', '.join(missing)} "
+                                "(or pass --use-fixtures / --target-url)")
     findings = run_ingest(scan_id, nuclei_path, nmap_path, zap_path)
     click.echo(f"Ingested {len(findings)} findings from 3 scanners -> {normalized_path(scan_id)}")
 
@@ -82,12 +131,19 @@ def ticket_cmd(scan_id):
 @cli.command()
 @click.option("--scan-id", required=True)
 @click.option("--use-fixtures", is_flag=True)
+@click.option("--target-url", default=None,
+              help="Run a live scan (Nuclei+Nmap+ZAP) against this URL instead of using fixtures")
+@click.option("--nmap-target", multiple=True,
+              help="Extra host/IP for Nmap (repeatable); defaults to --target-url's hostname")
+@click.option("--fast", is_flag=True,
+              help="Trim scanner scope for a much quicker (less thorough) live scan")
 @click.option("--no-ai-summaries", is_flag=True)
 @click.option("--no-ticket", is_flag=True)
 @click.pass_context
-def run(ctx, scan_id, use_fixtures, no_ai_summaries, no_ticket):
+def run(ctx, scan_id, use_fixtures, target_url, nmap_target, fast, no_ai_summaries, no_ticket):
     """Runs the full pipeline end-to-end: ingest -> dedup -> enrich -> score -> ticket."""
-    ctx.invoke(ingest_cmd, scan_id=scan_id, use_fixtures=use_fixtures)
+    ctx.invoke(ingest_cmd, scan_id=scan_id, use_fixtures=use_fixtures,
+               target_url=target_url, nmap_target=nmap_target, fast=fast)
     ctx.invoke(dedup_cmd, scan_id=scan_id)
     ctx.invoke(enrich_cmd, scan_id=scan_id)
     ctx.invoke(score_cmd, scan_id=scan_id, no_ai_summaries=no_ai_summaries)

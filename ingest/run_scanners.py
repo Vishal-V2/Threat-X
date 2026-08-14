@@ -20,40 +20,72 @@ from ingest.schema import Finding, save_findings
 ZAP_IMAGE = "ghcr.io/zaproxy/zaproxy:stable"
 
 
-def run_nuclei(target_url: str, out_path: Path) -> None:
+def run_nuclei(target_url: str, out_path: Path, fast: bool = False) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        ["nuclei", "-u", target_url, "-jsonl", "-o", str(out_path), "-severity",
-         "info,low,medium,high,critical", "-rate-limit", "50"],
-        check=True,
-    )
+    cmd = ["nuclei", "-u", target_url, "-jsonl", "-o", str(out_path)]
+    if fast:
+        # Full default run: ~10.5k templates, several minutes even against one
+        # host. Fast mode trims to the templates most likely to matter and
+        # raises the request rate, at the cost of coverage.
+        cmd += ["-severity", "medium,high,critical", "-tags", "cve,exposure,misconfig,default-login",
+                "-rate-limit", "150"]
+    else:
+        cmd += ["-severity", "info,low,medium,high,critical", "-rate-limit", "50"]
+    subprocess.run(cmd, check=True)
 
 
-def run_nmap(targets: list[str], out_path: Path) -> None:
+def run_nmap(targets: list[str], out_path: Path, fast: bool = False) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        ["nmap", "-sV", "-sC", "--script", "vuln,vulners", "-oX", str(out_path), *targets],
-        check=True,
-    )
+    # The `vulners` script does a live network lookup per detected service —
+    # it's the single biggest time cost (minutes, not seconds) and the first
+    # thing to drop for speed; `vuln` alone still catches plenty via local
+    # NSE checks. Note: `vulners.nse` self-registers under nmap's "vuln"
+    # category too, so naming just "vuln" does NOT exclude it — has to be
+    # explicitly subtracted via nmap's script-selection boolean expression.
+    scripts = "vuln and not vulners" if fast else "vuln,vulners"
+    cmd = ["nmap", "-sV", "-sC", "--script", scripts, "-oX", str(out_path)]
+    if fast:
+        cmd += ["--top-ports", "100"]
+    cmd += targets
+    subprocess.run(cmd, check=True)
 
 
-def run_zap(target_url: str, out_dir: Path, docker_network: str = "threatx-net") -> None:
+def run_zap(target_url: str, out_dir: Path, docker_network: str = "threatx-net",
+            fast: bool = False) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        ["docker", "run", "--rm", "--network", docker_network,
-         "-v", f"{out_dir}:/zap/wrk/:rw", "-t", ZAP_IMAGE,
-         "zap-baseline.py", "-t", target_url, "-J", "zap-report.json", "-I"],
-        check=True,
-    )
+    # The ZAP container runs as its own internal user, unrelated to the host
+    # UID that owns this bind-mounted directory — without world-writable
+    # permissions here, ZAP can't write its config or report into the mount
+    # at all (a well-documented ZAP-in-Docker gotcha, not scan-specific).
+    out_dir.chmod(0o777)
+
+    cmd = ["docker", "run", "--rm", "--network", docker_network,
+           "-v", f"{out_dir}:/zap/wrk/:rw", "-t", ZAP_IMAGE,
+           "zap-baseline.py", "-t", target_url, "-J", "zap-report.json", "-I"]
+    if fast:
+        cmd += ["-m", "2"]  # cap the spider phase at 2 minutes
+    result = subprocess.run(cmd)
+
+    # zap-baseline.py's exit code reflects alerts found (0=none, 1=warn,
+    # 2=fail) — that's success, not a process failure, so we deliberately
+    # don't `check=True` here. The only real failure signal is "no report
+    # was produced at all".
+    if not (out_dir / "zap-report.json").exists():
+        raise RuntimeError(
+            f"ZAP baseline scan did not produce a report (docker exit code "
+            f"{result.returncode}). Check Docker/network connectivity to the target."
+        )
 
 
-def run_scanners(scan_id: str, juice_shop_url: str, nmap_targets: list[str]) -> None:
+def run_scanners(scan_id: str, juice_shop_url: str, nmap_targets: list[str],
+                  fast: bool = False) -> None:
     """Invokes the three real scanner CLIs. Requires nuclei/nmap on PATH and a
-    running Docker daemon on `threatx-net` (see scripts/setup_target.sh)."""
+    running Docker daemon on `threatx-net` (see scripts/setup_target.sh).
+    fast=True trims each scanner's scope for a much quicker (less thorough) run."""
     raw = raw_dir(scan_id)
-    run_nuclei(juice_shop_url, raw / "nuclei" / "juice-shop.jsonl")
-    run_nmap(nmap_targets, raw / "nmap" / "scan.xml")
-    run_zap(juice_shop_url, raw / "zap")
+    run_nuclei(juice_shop_url, raw / "nuclei" / "juice-shop.jsonl", fast=fast)
+    run_nmap(nmap_targets, raw / "nmap" / "scan.xml", fast=fast)
+    run_zap(juice_shop_url, raw / "zap", fast=fast)
 
 
 def ingest(scan_id: str, nuclei_path: str | Path, nmap_path: str | Path,

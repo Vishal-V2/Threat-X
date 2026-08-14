@@ -7,7 +7,7 @@ from __future__ import annotations
 from google.genai import types
 from pydantic import BaseModel
 
-from ai.client import DEFAULT_MODEL, get_client
+from ai.client import DEFAULT_MODEL, generate_content
 
 
 class PairVerdict(BaseModel):
@@ -39,7 +39,7 @@ def judge_duplicate_pairs(pairs: list[dict]) -> list[dict]:
             f"  B: \"{p['title_b']}\" — {p.get('desc_b') or '(no description)'}\n"
         )
 
-    response = get_client().models.generate_content(
+    response = generate_content(
         model=DEFAULT_MODEL,
         contents="\n".join(lines),
         config=types.GenerateContentConfig(

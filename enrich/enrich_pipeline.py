@@ -16,6 +16,19 @@ def _severity_fallback_cvss(finding: Finding, table: dict) -> float:
     return table.get(finding.scanner_severity.lower(), table.get("info", 0.5))
 
 
+def _safe_get_cvss(cve: str) -> dict | None:
+    """NVD's API is occasionally flaky (transient 404/5xx on a request that
+    succeeds moments later) — our retry logic only covers 403/429, so any
+    other transient failure would otherwise crash the entire enrichment phase
+    over a single CVE. One CVE's lookup failing degrades to the
+    severity-fallback CVSS for that finding, same as if it had no CVE data at all."""
+    try:
+        return nvd.get_cvss(cve)
+    except Exception as e:
+        print(f"  [warn] NVD lookup failed for {cve}: {e}")
+        return None
+
+
 def enrich_findings(findings: list[Finding]) -> list[Finding]:
     targets = [f for f in findings if not f.is_duplicate and not f.suppressed]
     all_cves = sorted({c for f in targets for c in f.cve_ids})
@@ -26,7 +39,7 @@ def enrich_findings(findings: list[Finding]) -> list[Finding]:
 
     for f in targets:
         if f.cve_ids:
-            cvss_hits = [c for c in (nvd.get_cvss(cve) for cve in f.cve_ids) if c and c.get("score") is not None]
+            cvss_hits = [c for c in (_safe_get_cvss(cve) for cve in f.cve_ids) if c and c.get("score") is not None]
             if cvss_hits:
                 best = max(cvss_hits, key=lambda c: c["score"])
                 f.cvss_v3_score = best["score"]

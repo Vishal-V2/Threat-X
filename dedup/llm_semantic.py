@@ -41,7 +41,15 @@ def resolve_candidates(findings: list[Finding], candidates: list[tuple[int, int,
 
     for start in range(0, len(batch_input), _BATCH_SIZE):
         chunk = batch_input[start:start + _BATCH_SIZE]
-        verdicts = judge_duplicate_pairs(chunk)
+        try:
+            verdicts = judge_duplicate_pairs(chunk)
+        except Exception as e:  # e.g. rate limit/quota exhaustion, transient API errors
+            log.append({
+                "note": f"LLM semantic pass failed for a batch of {len(chunk)} pair(s): {e}. "
+                        "Those candidates are left un-merged; earlier batches in this run "
+                        "(if any) are unaffected."
+            })
+            continue
         for v in verdicts:
             pair_id = v.get("pair_id")
             if pair_id not in id_to_pair:

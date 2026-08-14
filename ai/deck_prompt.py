@@ -8,7 +8,7 @@ import json
 
 from google.genai import types
 
-from ai.client import DEFAULT_MODEL, get_client
+from ai.client import DEFAULT_MODEL, generate_content
 from common.paths import final_scored_path, metrics_path
 from ingest.schema import load_findings
 from score.rank import ranked
@@ -46,7 +46,7 @@ KEV-boosted), (5) results: the top 5 findings above, (6) what's deterministic vs
 AI-assisted and why (scoring is deterministic for explainability; dedup and
 summaries use Gemini)."""
 
-    response = get_client().models.generate_content(
+    response = generate_content(
         model=DEFAULT_MODEL,
         contents=prompt,
         config=types.GenerateContentConfig(system_instruction=_SYSTEM, max_output_tokens=3000),

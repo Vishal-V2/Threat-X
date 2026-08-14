@@ -45,6 +45,7 @@ def create_tickets(scan_id: str, findings: list[Finding], min_score: float, top_
         return findings
 
     from github import Github
+    from github.GithubException import GithubException
 
     candidates = sorted(
         (f for f in findings if not f.is_duplicate and not f.suppressed
@@ -69,16 +70,24 @@ def create_tickets(scan_id: str, findings: list[Finding], min_score: float, top_
             print(f"[ticket] Skipping (cached, issue #{f.github_issue_number}): {f.title[:50]}")
             continue
 
-        existing = list(repo.get_issues(state="all", labels=[label]))
-        if existing:
-            issue = existing[0]
-            f.github_issue_number = issue.number
-            f.github_issue_url = issue.html_url
-            state[label] = {"issue_number": issue.number, "issue_url": issue.html_url}
-            print(f"[ticket] Skipping (already exists, issue #{issue.number}): {f.title[:50]}")
-            continue
+        try:
+            existing = list(repo.get_issues(state="all", labels=[label]))
+            if existing:
+                issue = existing[0]
+                f.github_issue_number = issue.number
+                f.github_issue_url = issue.html_url
+                state[label] = {"issue_number": issue.number, "issue_url": issue.html_url}
+                print(f"[ticket] Skipping (already exists, issue #{issue.number}): {f.title[:50]}")
+                continue
 
-        issue = repo.create_issue(title=issue_title(f), body=issue_body(f), labels=issue_labels(f))
+            issue = repo.create_issue(title=issue_title(f), body=issue_body(f), labels=issue_labels(f))
+        except GithubException as e:
+            status = e.status
+            reason = "insufficient token permissions (needs 'Issues: write')" if status == 403 else str(e.data)
+            print(f"[ticket] GitHub API error ({status}) — {reason}. "
+                  f"Stopping ticket creation; scoring/dashboard results are unaffected.")
+            break
+
         f.github_issue_number = issue.number
         f.github_issue_url = issue.html_url
         f.ticket_created_at = datetime.now(timezone.utc)

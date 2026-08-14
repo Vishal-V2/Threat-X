@@ -9,7 +9,13 @@ entity across every chart on the page.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
+
+# Streamlit only adds this script's own directory (dashboard/) to sys.path, not
+# the project root — so `common`/`ingest`/etc. aren't importable unless we add
+# it ourselves. Must happen before any project-local import below.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -32,6 +38,15 @@ def available_scan_ids() -> list[str]:
     if not root.exists():
         return []
     return sorted(p.name for p in root.iterdir() if (p / "final_scored.parquet").exists())
+
+
+def clean(val):
+    """Missing Optional[str] fields (ai_summary, github_issue_url, ...) load from
+    parquet as NaN (a truthy float, and pandas' string dtype keeps NaN — not
+    None — as its missing-value marker even after reassignment), so an
+    unguarded `row["x"] or fallback` would render the literal text "nan"
+    instead of falling back. Use this at every such call site instead."""
+    return val if pd.notna(val) else None
 
 
 @st.cache_data
@@ -136,11 +151,13 @@ if len(filtered):
                            xaxis_gridcolor=GRID, plot_bgcolor="white")
         st.plotly_chart(fig, use_container_width=True)
     with right:
-        st.markdown(f"**Why this matters:** {row['ai_summary'] or '_(AI summary not generated — set GEMINI_API_KEY)_'}")
+        ai_summary = clean(row["ai_summary"])
+        st.markdown(f"**Why this matters:** {ai_summary or '_(AI summary not generated — set GEMINI_API_KEY)_'}")
         st.markdown(f"- **SLA:** {row['sla_tier']} — due {row['sla_due_date']}, owner {row['owner']} ({row['team']})")
         st.markdown(f"- **Found by:** {row['contributing_label']}")
-        if row["github_issue_url"]:
-            st.markdown(f"- **Ticket:** [{row['github_issue_url']}]({row['github_issue_url']})")
+        issue_url = clean(row["github_issue_url"])
+        if issue_url:
+            st.markdown(f"- **Ticket:** [{issue_url}]({issue_url})")
         evidence = row["raw_evidence"]
         evidence = json.loads(evidence) if isinstance(evidence, str) else evidence
         with st.expander("Evidence"):

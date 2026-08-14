@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Literal, Optional
 
 import pandas as pd
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 SourceScanner = Literal["nuclei", "nmap", "zap"]
 DedupMethod = Literal["exact_cve_host", "exact_title_host_port", "fuzzy", "llm_semantic"]
@@ -43,6 +43,17 @@ class Finding(BaseModel):
     scanner_confidence: Optional[str] = None
     raw_evidence: dict = Field(default_factory=dict)
     first_seen: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @field_validator("cve_ids")
+    @classmethod
+    def _normalize_cve_ids(cls, value: list[str]) -> list[str]:
+        """NVD/EPSS/KEV all do exact-string CVE lookups — some scanner
+        templates report CVE IDs in inconsistent case (e.g. a community
+        Nuclei template's own YAML metadata used 'cve-2023-48795', lowercase,
+        while NVD only recognizes 'CVE-2023-48795'), which would otherwise
+        silently 404 during enrichment. Normalize once here so every phase
+        downstream can assume canonical uppercase."""
+        return [v.upper() for v in value]
 
     # --- Dedup phase ---
     normalized_title: Optional[str] = None

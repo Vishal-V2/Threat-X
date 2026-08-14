@@ -1,5 +1,6 @@
 import time
 
+import enrich.enrich_pipeline as ep
 from enrich.cache import get_or_fetch
 from enrich.enrich_pipeline import _severity_fallback_cvss
 from ingest.schema import Finding
