@@ -13,13 +13,22 @@ Already required, no extra install:
 - Internet access (the enrichment phase calls NVD/CISA KEV/FIRST EPSS live)
 
 Only required for **live mode** (scanning a real target instead of fixtures):
-- Docker, with the daemon running (`docker info` should succeed)
+- Docker, with the daemon running (`docker info` should succeed) — needed for the ZAP scan
 - `nuclei` on PATH ([install docs](https://docs.projectdiscovery.io/tools/nuclei/install))
 - `nmap` on PATH (`apt install nmap` / `brew install nmap`)
+
+You don't need to check these yourself — `pipeline.py run --target-url ...`
+checks all three up front and fails immediately with a clear list of what's
+missing, rather than dying partway through a scan.
 
 Optional, nice-to-have:
 - `searchsploit` (`apt install exploitdb`) — without it, Exploit-DB availability
   just always reports `False` instead of erroring; everything else still works.
+- `GEMINI_API_KEY` — unlocks AI-assisted semantic dedup and per-finding
+  summaries (see `README.md`'s environment variables table). Free tier is
+  fairly rate-limited (a handful of requests/minute); if you hit `429`s, the
+  pipeline retries automatically and otherwise just logs a warning and moves
+  on rather than failing the run.
 
 ## 2. Install
 
@@ -65,24 +74,46 @@ Or do all of the above in one command: `./scripts/demo.sh demo`
 
 ## 4. Run it — live mode (real scans)
 
-Once fixture mode works, point it at a real (safe, self-hosted) target:
+Once fixture mode works, point it at a real target — **one command**:
+
+```bash
+python pipeline.py run --scan-id myapp --target-url https://your-app.example.com --fast
+```
+
+That's it. It checks for Nuclei/Nmap/Docker up front, figures out the hostname
+for Nmap automatically, runs all three scanners, and chains straight into
+dedup → enrich → score → ticket. **Only scan a target you own or have
+explicit written authorization to test.** If you don't have your own
+infrastructure handy, [scanme.nmap.org](https://scanme.nmap.org) is the Nmap
+project's own test target, explicitly put up for exactly this.
+
+A few flags worth knowing:
+- **`--fast`** — trims each scanner's scope for a much quicker (if less
+  thorough) run: Nuclei only checks higher-severity/relevant template
+  categories, Nmap drops its slowest script and limits itself to the top 100
+  ports, ZAP's crawl is capped at 2 minutes. Drop it for a full, slower,
+  more thorough scan.
+- **`--nmap-target <host-or-ip>`** (repeatable) — override what Nmap scans;
+  defaults to `--target-url`'s hostname.
+- The `ingest` subcommand alone also accepts `--target-url`/`--fast` if you
+  just want that one phase without chaining into the rest.
+
+Then, same as fixture mode:
+```bash
+python scripts/verify_key_criteria.py myapp
+streamlit run dashboard/app.py     # pick 'myapp' from the sidebar
+```
+
+### Alternative: your own disposable target (Juice Shop + Metasploitable2)
+
+If you'd rather stand up a known-vulnerable target locally instead of scanning
+something on the internet:
 
 ```bash
 ./scripts/setup_target.sh        # brings up Juice Shop + Metasploitable2 on an isolated Docker network
 source data/.target_env          # sets $JUICE_IP / $META_IP for this shell
-
-python -c "from ingest.run_scanners import run_scanners; \
-  run_scanners('live1', 'http://localhost:3000', ['$JUICE_IP', '$META_IP'])"
-
-python pipeline.py ingest --scan-id live1 \
-  --nuclei-path data/raw/live1/nuclei/juice-shop.jsonl \
-  --nmap-path data/raw/live1/nmap/scan.xml \
-  --zap-path data/raw/live1/zap/zap-report.json
-python pipeline.py dedup --scan-id live1
-python pipeline.py enrich --scan-id live1
-python pipeline.py score --scan-id live1
-python pipeline.py ticket --scan-id live1
-streamlit run dashboard/app.py
+python pipeline.py run --scan-id live1 --target-url http://localhost:3000 \
+  --nmap-target "$JUICE_IP" --nmap-target "$META_IP"
 ```
 
 `scripts/setup_target.sh` explains in its comments why Metasploitable2 is there
@@ -96,10 +127,12 @@ it's deliberately unpatched.
 pytest tests/ -q
 ```
 
-17 tests, covering the parsers, dedup logic, enrichment cache/fallback, scoring
-formula, and a full acceptance test that re-runs the pipeline and re-checks all
-4 Key Criteria. This makes live network calls to NVD/EPSS/KEV (cached after the
-first run) but needs no Docker/scanners/API keys.
+28 tests, covering the parsers, dedup logic, enrichment cache/fallback/resilience,
+scoring formula, live-scan invocation (Nmap script selection, ZAP's
+permission/exit-code handling — both mocked, no Docker/nmap needed), CVE-ID
+normalization, and a full acceptance test that re-runs the pipeline and
+re-checks all 4 Key Criteria. This makes live network calls to NVD/EPSS/KEV
+(cached after the first run) but needs no Docker/scanners/API keys.
 
 ## 6. Troubleshooting
 
@@ -107,13 +140,29 @@ first run) but needs no Docker/scanners/API keys.
   telemetry prompt, only happens with a truly blank terminal session. Add
   `--server.headless true` to the command, or just press Enter.
 - **`docker info` fails**: the daemon isn't running — start Docker Desktop (or
-  `sudo systemctl start docker` on Linux) before `setup_target.sh`.
-- **NVD enrichment is slow / 403s**: you're rate-limited (5 req/30s
-  unauthenticated). Get a free `NVD_API_KEY` (see next section) — it raises the
-  limit to 50 req/30s. Results are cached in `data/cache/enrichment_cache.db`,
-  so repeated runs against the same CVEs are instant regardless.
+  `sudo systemctl start docker` on Linux) before a live scan.
+- **ZAP's spider fails with "Network is unreachable"**: seen specifically when
+  Docker is running in **rootless mode** — its userspace network stack can
+  block a container's outbound access on a custom bridge network. Normal
+  (non-rootless) Docker doesn't have this issue; if you're intentionally on
+  rootless Docker, this is a known limitation to work around on your own
+  network setup, not a Threat-X bug.
+- **NVD enrichment is slow, or you see an occasional `[warn] NVD lookup
+  failed`**: the unauthenticated rate limit is tight (5 req/30s), and NVD's
+  API is occasionally flaky even within that limit. A free `NVD_API_KEY`
+  raises it to 50 req/30s and mostly clears this up. Either way, a single
+  failed CVE lookup logs a warning and falls back to a severity-based score
+  instead of failing the whole run — results are cached in
+  `data/cache/enrichment_cache.db` regardless, so repeated runs against the
+  same CVEs are instant.
+- **`[warn] AI summary failed ... 429 RESOURCE_EXHAUSTED`**: Gemini's free
+  tier rate/quota limit — expected under heavy use, not a bug. The pipeline
+  retries automatically (using the API's own suggested wait time when given)
+  and otherwise just skips that finding's summary rather than failing the run.
 - **Ticketing says "skipping"**: expected until you set `GITHUB_TOKEN` +
-  `GITHUB_REPO` — see next section.
+  `GITHUB_REPO` — see next section. If it instead prints a `403` about
+  insufficient permissions, your token needs the `repo` scope (classic PAT) or
+  `Issues: Read and write` (fine-grained PAT).
 
 ## What's next
 

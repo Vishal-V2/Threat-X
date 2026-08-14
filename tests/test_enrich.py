@@ -56,3 +56,37 @@ def test_severity_fallback_cvss_for_cveless_finding():
     assert _severity_fallback_cvss(_finding(scanner_severity="high"), table) == 7.5
     assert _severity_fallback_cvss(_finding(scanner_severity="info"), table) == 0.5
     assert _severity_fallback_cvss(_finding(scanner_severity="unknown-severity"), table) == 0.5
+
+
+def test_safe_get_cvss_returns_none_on_exception(monkeypatch):
+    """NVD's API is occasionally flaky -- a live run hit a transient 404 for a
+    CVE that a direct curl fetched fine (HTTP 200, full record) moments
+    later. Our retry logic only covers 403/429, so any other failure must be
+    swallowed here rather than propagate and crash the whole enrichment phase
+    over a single CVE."""
+    def boom(cve):
+        raise RuntimeError("simulated transient NVD failure")
+
+    monkeypatch.setattr(ep.nvd, "get_cvss", boom)
+    assert ep._safe_get_cvss("CVE-2023-48795") is None
+
+
+def test_enrich_findings_survives_a_failing_nvd_lookup(monkeypatch):
+    """End-to-end: one finding's only CVE fails its NVD lookup -- enrichment
+    must still complete and fall back to the severity-based pseudo-CVSS,
+    exactly as if the finding had no CVE at all, instead of crashing the
+    batch for every other finding too."""
+    monkeypatch.setattr(ep.kev, "get_kev_index", lambda: {})
+    monkeypatch.setattr(ep.epss, "get_epss_scores", lambda cves: {})
+    monkeypatch.setattr(ep.exploitdb, "get_exploit_ids", lambda cve: [])
+
+    def flaky_get_cvss(cve):
+        raise RuntimeError("simulated transient NVD failure")
+
+    monkeypatch.setattr(ep.nvd, "get_cvss", flaky_get_cvss)
+
+    f = _finding(cve_ids=["CVE-2023-48795"], scanner_severity="medium")
+    findings = ep.enrich_findings([f])
+
+    assert findings[0].cvss_source == "scanner_severity_fallback"
+    assert findings[0].cvss_v3_score is not None
