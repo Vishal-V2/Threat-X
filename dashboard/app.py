@@ -34,10 +34,17 @@ st.set_page_config(page_title="Threat-X Risk Dashboard", layout="wide")
 
 @st.cache_data
 def available_scan_ids() -> list[str]:
+    """Ordered oldest -> newest by when each scan finished scoring, not
+    alphabetically — the sidebar defaults to the last entry in this list, and
+    "most recently completed" is what a user actually expects there, not
+    whichever scan-id happens to sort last as a string (e.g. 'scanme' would
+    always beat 'myapp' alphabetically regardless of which ran more recently)."""
     root = DATA_DIR / "processed"
     if not root.exists():
         return []
-    return sorted(p.name for p in root.iterdir() if (p / "final_scored.parquet").exists())
+    scored = [p for p in root.iterdir() if (p / "final_scored.parquet").exists()]
+    scored.sort(key=lambda p: (p / "final_scored.parquet").stat().st_mtime)
+    return [p.name for p in scored]
 
 
 def clean(val):
