@@ -90,3 +90,16 @@ def test_enrich_findings_survives_a_failing_nvd_lookup(monkeypatch):
 
     assert findings[0].cvss_source == "scanner_severity_fallback"
     assert findings[0].cvss_v3_score is not None
+
+
+def test_kev_survives_api_failure(monkeypatch):
+    import enrich.kev as kev_mod
+    monkeypatch.setattr(kev_mod, "get_or_fetch", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("CISA feed unreachable")))
+    assert kev_mod.get_kev_index() == {}
+
+
+def test_epss_survives_api_failure(monkeypatch):
+    import enrich.epss as epss_mod
+    monkeypatch.setattr(epss_mod, "get_or_fetch", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("EPSS API timeout")))
+    assert epss_mod.get_epss_scores(["CVE-2023-34362"]) == {}
+
