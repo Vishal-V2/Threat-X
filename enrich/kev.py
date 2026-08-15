@@ -24,5 +24,12 @@ def _fetch_feed() -> dict:
 
 def get_kev_index() -> dict:
     """Fetches (or returns cached) the full KEV catalog as
-    cve_id -> {date_added, ransomware_known}."""
-    return get_or_fetch("kev", "catalog", _fetch_feed, CACHE_TTL_DAYS) or {}
+    cve_id -> {date_added, ransomware_known}. Degrades to an empty index
+    (no finding will show as KEV-listed) rather than crashing the whole
+    pipeline if the CISA feed is unreachable — same fallback pattern as
+    nvd.py."""
+    try:
+        return get_or_fetch("kev", "catalog", _fetch_feed, CACHE_TTL_DAYS) or {}
+    except Exception as e:
+        print(f"  [warn] KEV fetch failed, continuing without KEV data: {e}")
+        return {}
