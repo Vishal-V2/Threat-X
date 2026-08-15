@@ -27,7 +27,11 @@ def get_epss_scores(cve_ids: list[str]) -> dict:
     unique = sorted(set(cve_ids))
     for start in range(0, len(unique), BATCH_SIZE):
         batch = tuple(unique[start:start + BATCH_SIZE])
-        batch_result = get_or_fetch("epss", ",".join(batch), lambda b=batch: _fetch_batch(b),
-                                     CACHE_TTL_DAYS)
+        try:
+            batch_result = get_or_fetch("epss", ",".join(batch), lambda b=batch: _fetch_batch(b),
+                                         CACHE_TTL_DAYS)
+        except Exception as e:
+            print(f"  [warn] EPSS fetch failed for a batch, continuing without EPSS data: {e}")
+            batch_result = {}
         results.update(batch_result or {})
     return results
