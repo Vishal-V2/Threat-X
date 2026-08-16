@@ -119,6 +119,49 @@ def score_cmd(scan_id, no_ai_summaries):
     click.echo(f"Scored and ranked {n} findings -> {final_scored_path(scan_id)}")
 
 
+@cli.command(name="show")
+@click.option("--scan-id", required=True)
+@click.option("--top", default=20, help="Max findings to print (default 20)")
+def show_cmd(scan_id, top):
+    """Print a scan's results in the terminal — the same data the dashboard
+    shows, without needing Streamlit running."""
+    import json as _json
+
+    from common.paths import metrics_path
+    from score.rank import ranked
+
+    findings = load_findings(final_scored_path(scan_id))
+    metrics = {}
+    m_path = metrics_path(scan_id)
+    if m_path.exists():
+        metrics = _json.loads(m_path.read_text())
+
+    click.echo(f"\n=== Scan: {scan_id} ===")
+    click.echo(f"Raw findings:        {metrics.get('raw_count', '—')}")
+    click.echo(f"Duplicates removed:  {metrics.get('duplicate_count', '—')} "
+               f"(-{metrics.get('dedup_pct', 0)}%)")
+    click.echo(f"Suppressed (FP):     {metrics.get('suppressed_count', '—')} "
+               f"(-{metrics.get('fp_removed_pct', 0)}%)")
+    click.echo(f"Final findings:      {metrics.get('final_count', '—')} "
+               f"(-{metrics.get('noise_reduction_pct', 0)}% total noise)\n")
+
+    top_findings = ranked(findings)[:top]
+    if not top_findings:
+        click.echo("No actionable findings.")
+        return
+
+    click.echo(f"{'#':<4}{'Score':<7}{'SLA':<9}{'Finding':<50}{'Host':<22}{'CVE(s)':<18}{'Ticket'}")
+    click.echo("-" * 130)
+    for i, f in enumerate(top_findings, 1):
+        cve = ",".join(f.cve_ids)[:16] or "-"
+        ticket = f"#{f.github_issue_number}" if f.github_issue_number else "-"
+        click.echo(f"{i:<4}{f.risk_score:<7.1f}{(f.sla_tier or '-'):<9}"
+                   f"{f.title[:48]:<50}{f.host[:20]:<22}{cve:<18}{ticket}")
+
+    if len(ranked(findings)) > top:
+        click.echo(f"\n... and {len(ranked(findings)) - top} more (raise --top to see them)")
+
+
 @cli.command(name="ticket")
 @click.option("--scan-id", required=True)
 def ticket_cmd(scan_id):
@@ -136,27 +179,19 @@ def ticket_cmd(scan_id):
 def assign_cmd(issue, user):
     """Assign (or unassign) a GitHub issue — replaces its current assignee
     list. ISSUE can be a bare number (5) or a full issue URL."""
-    import os
-    import re
-
-    match = re.search(r"(\d+)/?$", issue)
-    if not match:
-        raise click.UsageError(f"Couldn't find an issue number in '{issue}'")
-    issue_number = int(match.group(1))
-
-    token = os.environ.get("GITHUB_TOKEN")
-    repo_name = os.environ.get("GITHUB_REPO")
-    if not token or not repo_name:
-        raise click.UsageError("GITHUB_TOKEN and GITHUB_REPO must be set (see .env)")
-
-    from github import Auth, Github
     from github.GithubException import GithubException
 
-    gh = Github(auth=Auth.Token(token))
-    repo = gh.get_repo(repo_name)
+    from ticket.github_issues import assign_issue, parse_issue_number
+
     try:
-        gh_issue = repo.get_issue(issue_number)
-        gh_issue.edit(assignees=list(user))
+        issue_number = parse_issue_number(issue)
+    except ValueError as e:
+        raise click.UsageError(str(e))
+
+    try:
+        assign_issue(issue_number, list(user))
+    except RuntimeError as e:
+        raise click.UsageError(str(e))
     except GithubException as e:
         raise click.ClickException(f"GitHub API error ({e.status}): {e.data}")
 
