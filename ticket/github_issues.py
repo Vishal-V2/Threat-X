@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime, timezone
 
 from common.paths import ticket_state_path
@@ -21,6 +22,43 @@ from ticket.templates import issue_body, issue_labels, issue_title
 
 def is_configured() -> bool:
     return bool(os.environ.get("GITHUB_TOKEN") and os.environ.get("GITHUB_REPO"))
+
+
+def _get_repo():
+    from github import Auth, Github
+
+    gh = Github(auth=Auth.Token(os.environ["GITHUB_TOKEN"]))
+    return gh.get_repo(os.environ["GITHUB_REPO"])
+
+
+def parse_issue_number(issue: str | int) -> int:
+    """Accepts a bare issue number or a full issue URL."""
+    match = re.search(r"(\d+)/?$", str(issue))
+    if not match:
+        raise ValueError(f"Couldn't find an issue number in '{issue}'")
+    return int(match.group(1))
+
+
+def assign_issue(issue_number: int, usernames: list[str]) -> None:
+    """Replaces a GitHub issue's assignee list entirely (empty list unassigns
+    everyone). The one shared code path for both the CLI `assign` command and
+    the dashboard's assign UI — deliberately not duplicated between them.
+    Raises RuntimeError if GITHUB_TOKEN/GITHUB_REPO aren't set, or
+    github.GithubException on any API failure (e.g. a username that isn't a
+    repo collaborator — GitHub rejects that with a 422, it doesn't silently drop it)."""
+    if not is_configured():
+        raise RuntimeError("GITHUB_TOKEN and GITHUB_REPO must be set (see .env)")
+    issue = _get_repo().get_issue(issue_number)
+    issue.edit(assignees=usernames)
+
+
+def get_issue_assignees(issue_number: int) -> list[str]:
+    """Current assignees on a GitHub issue, for display purposes. Returns []
+    (not an error) if GITHUB_TOKEN/GITHUB_REPO aren't configured."""
+    if not is_configured():
+        return []
+    issue = _get_repo().get_issue(issue_number)
+    return [a.login for a in issue.assignees]
 
 
 def _load_state(scan_id: str) -> dict:
@@ -45,7 +83,6 @@ def create_tickets(scan_id: str, findings: list[Finding], min_score: float, top_
         print("[ticket] GITHUB_TOKEN/GITHUB_REPO not set — skipping ticket creation.")
         return findings
 
-    from github import Auth, Github
     from github.GithubException import GithubException
 
     candidates = sorted(
@@ -58,8 +95,7 @@ def create_tickets(scan_id: str, findings: list[Finding], min_score: float, top_
         print(f"[ticket] No findings scored >= {min_score}; nothing to ticket.")
         return findings
 
-    gh = Github(auth=Auth.Token(os.environ["GITHUB_TOKEN"]))
-    repo = gh.get_repo(os.environ["GITHUB_REPO"])
+    repo = _get_repo()
     state = _load_state(scan_id)
 
     for f in candidates:

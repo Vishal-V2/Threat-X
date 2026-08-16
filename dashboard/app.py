@@ -20,8 +20,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from dotenv import load_dotenv
 
 from common.paths import DATA_DIR, final_scored_path, metrics_path
+from ticket.github_issues import assign_issue, get_issue_assignees
+from ticket.github_issues import is_configured as github_configured
+
+load_dotenv()
 
 # --- Validated categorical + status palette (dataviz skill, light-mode steps) ---
 SCANNER_COLORS = {"nuclei": "#2a78d6", "nmap": "#eb6834", "zap": "#1baf7a"}  # slots 1-3
@@ -163,12 +168,59 @@ if len(filtered):
         st.markdown(f"- **SLA:** {row['sla_tier']} — due {row['sla_due_date']}, owner {row['owner']} ({row['team']})")
         st.markdown(f"- **Found by:** {row['contributing_label']}")
         issue_url = clean(row["github_issue_url"])
+        issue_number = clean(row["github_issue_number"])
         if issue_url:
             st.markdown(f"- **Ticket:** [{issue_url}]({issue_url})")
         evidence = row["raw_evidence"]
         evidence = json.loads(evidence) if isinstance(evidence, str) else evidence
         with st.expander("Evidence"):
             st.json(evidence)
+
+        # --- Assign the ticket, right from here — the one write action this
+        # dashboard performs; everything else on the page stays read-only. ---
+        if issue_number:
+            issue_number = int(issue_number)
+            st.markdown("**Assign ticket**")
+            if not github_configured():
+                st.caption("_Set GITHUB_TOKEN/GITHUB_REPO in .env to enable assignment._")
+            else:
+                from github.GithubException import GithubException
+
+                try:
+                    current = get_issue_assignees(issue_number)
+                except GithubException as e:
+                    current = []
+                    st.caption(f"Couldn't fetch current assignees ({e.status}).")
+                st.caption(f"Currently assigned: {', '.join(current) if current else '_none_'}")
+
+                new_names = st.text_input(
+                    "GitHub username(s), comma-separated", key=f"assign_input_{issue_number}",
+                    placeholder="e.g. alice, bob",
+                )
+                col_assign, col_unassign = st.columns(2)
+                with col_assign:
+                    if st.button("Assign", key=f"assign_btn_{issue_number}"):
+                        usernames = [u.strip() for u in new_names.split(",") if u.strip()]
+                        if not usernames:
+                            st.warning("Enter at least one GitHub username first.")
+                        else:
+                            try:
+                                assign_issue(issue_number, usernames)
+                                st.success(f"Issue #{issue_number} assigned to: {', '.join(usernames)}")
+                                st.rerun()
+                            except GithubException as e:
+                                st.error(f"GitHub API error ({e.status}): usually means that "
+                                         f"username isn't a collaborator on this repo yet.")
+                with col_unassign:
+                    if st.button("Unassign all", key=f"unassign_btn_{issue_number}"):
+                        try:
+                            assign_issue(issue_number, [])
+                            st.success(f"Issue #{issue_number} unassigned.")
+                            st.rerun()
+                        except GithubException as e:
+                            st.error(f"GitHub API error ({e.status}).")
+        else:
+            st.caption("_No ticket yet for this finding — nothing to assign._")
 else:
     st.info("No findings match the current filters.")
 
