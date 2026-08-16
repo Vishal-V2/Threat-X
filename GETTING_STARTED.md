@@ -121,20 +121,50 @@ python pipeline.py run --scan-id live1 --target-url http://localhost:3000 \
 anything). Never expose Metasploitable2's ports outside that isolated network —
 it's deliberately unpatched.
 
-## 5. Verify everything
+## 5. Assigning tickets
+
+Tickets get created automatically by the `ticket` phase (score ≥70), but
+*who* they're assigned to on GitHub is separate from that, and works two ways:
+
+**Before a ticket exists — per host, via config.** `config/assets.yaml` has a
+`github_username` field per asset, independent of the `owner`/`team` fields
+(those are just free-text display labels, never validated against a real
+account):
+
+```yaml
+juice-shop:
+  github_username: "Vishal-V2"    # must be a real GitHub login with repo access
+```
+
+Any *new* ticket created for that host picks this up automatically — it
+doesn't touch tickets already on GitHub.
+
+**After a ticket already exists — the `assign` command:**
+
+```bash
+python pipeline.py assign 5 -u Vishal-V2              # by issue number
+python pipeline.py assign <issue-url> -u alice -u bob  # or paste the full URL; multiple assignees
+python pipeline.py assign 5                            # no -u at all = unassign everyone
+```
+
+One thing to know: `-u` **replaces** the entire assignee list, it doesn't
+add to it — to keep an existing assignee while adding another, list both.
+
+## 6. Verify everything
 
 ```bash
 pytest tests/ -q
 ```
 
-28 tests, covering the parsers, dedup logic, enrichment cache/fallback/resilience,
-scoring formula, live-scan invocation (Nmap script selection, ZAP's
-permission/exit-code handling — both mocked, no Docker/nmap needed), CVE-ID
-normalization, and a full acceptance test that re-runs the pipeline and
+34 tests, covering the parsers, dedup logic, enrichment cache/fallback/resilience
+(all four sources: NVD/KEV/EPSS/Exploit-DB), scoring formula, live-scan
+invocation (Nmap script selection, ZAP's permission/exit-code handling — both
+mocked, no Docker/nmap needed), CVE-ID normalization, ticket owner/assignee
+config lookups, and a full acceptance test that re-runs the pipeline and
 re-checks all 4 Key Criteria. This makes live network calls to NVD/EPSS/KEV
 (cached after the first run) but needs no Docker/scanners/API keys.
 
-## 6. Troubleshooting
+## 7. Troubleshooting
 
 - **`streamlit run` hangs / asks for an email in the terminal**: first-run
   telemetry prompt, only happens with a truly blank terminal session. Add
@@ -163,6 +193,11 @@ re-checks all 4 Key Criteria. This makes live network calls to NVD/EPSS/KEV
   `GITHUB_REPO` — see next section. If it instead prints a `403` about
   insufficient permissions, your token needs the `repo` scope (classic PAT) or
   `Issues: Read and write` (fine-grained PAT).
+- **Just ran `assign` (or created a ticket) and the GitHub UI/API still shows
+  the old state**: GitHub's own read-after-write consistency lag — we saw this
+  twice in testing, where a `GET` immediately after a successful `PATCH`
+  briefly returned stale data. Wait a couple seconds and check again; it's not
+  a bug in the `assign` command or the token.
 
 ## What's next
 
