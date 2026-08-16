@@ -128,6 +128,44 @@ def ticket_cmd(scan_id):
     save_findings(findings, final_scored_path(scan_id))
 
 
+@cli.command(name="assign")
+@click.argument("issue")
+@click.option("--user", "-u", multiple=True,
+              help="GitHub username to assign (repeatable: -u alice -u bob). "
+                   "Omit entirely to unassign everyone.")
+def assign_cmd(issue, user):
+    """Assign (or unassign) a GitHub issue — replaces its current assignee
+    list. ISSUE can be a bare number (5) or a full issue URL."""
+    import os
+    import re
+
+    match = re.search(r"(\d+)/?$", issue)
+    if not match:
+        raise click.UsageError(f"Couldn't find an issue number in '{issue}'")
+    issue_number = int(match.group(1))
+
+    token = os.environ.get("GITHUB_TOKEN")
+    repo_name = os.environ.get("GITHUB_REPO")
+    if not token or not repo_name:
+        raise click.UsageError("GITHUB_TOKEN and GITHUB_REPO must be set (see .env)")
+
+    from github import Auth, Github
+    from github.GithubException import GithubException
+
+    gh = Github(auth=Auth.Token(token))
+    repo = gh.get_repo(repo_name)
+    try:
+        gh_issue = repo.get_issue(issue_number)
+        gh_issue.edit(assignees=list(user))
+    except GithubException as e:
+        raise click.ClickException(f"GitHub API error ({e.status}): {e.data}")
+
+    if user:
+        click.echo(f"Issue #{issue_number} assigned to: {', '.join(user)}")
+    else:
+        click.echo(f"Issue #{issue_number} unassigned.")
+
+
 @cli.command()
 @click.option("--scan-id", required=True)
 @click.option("--use-fixtures", is_flag=True)

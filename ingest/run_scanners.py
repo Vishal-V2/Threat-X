@@ -63,7 +63,14 @@ def run_zap(target_url: str, out_dir: Path, docker_network: str = "threatx-net",
            "-v", f"{out_dir}:/zap/wrk/:rw", "-t", ZAP_IMAGE,
            "zap-baseline.py", "-t", target_url, "-J", "zap-report.json", "-I"]
     if fast:
-        cmd += ["-m", "2"]  # cap the spider phase at 2 minutes
+        # `-m` caps the spider/crawl phase. Note: the passive-scan-wait phase
+        # that runs afterward has no reliable cap — zap-baseline.py's `-T`
+        # flag claims to bound "ZAP start + passive scan run", but a live
+        # timed test showed it has no measurable effect (23m either way), so
+        # it's deliberately NOT used here rather than imply a guarantee it
+        # doesn't deliver. Full ZAP-inclusive scans stay slow (~20-25 min);
+        # use --use-fixtures for fast iteration instead.
+        cmd += ["-m", "2"]
     result = subprocess.run(cmd)
 
     # zap-baseline.py's exit code reflects alerts found (0=none, 1=warn,
