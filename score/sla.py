@@ -19,6 +19,21 @@ def get_owner_team(host: str) -> tuple[str, str]:
     return default.get("owner", "@triage"), default.get("team", "Unassigned")
 
 
+def get_github_assignee(host: str) -> str | None:
+    """A real GitHub login to assign the ticket to (GitHub's Assignees field),
+    separate from `owner` — `owner` is a free-text display label (e.g.
+    "@appsec-lead") that never has to be a valid account; this must be an
+    actual GitHub username with at least read access to the repo, or GitHub
+    silently drops it as an assignee without erroring the issue creation."""
+    cfg = assets_config()
+    assets = cfg.get("assets", {})
+    if host in assets:
+        username = assets[host].get("github_username")
+    else:
+        username = cfg.get("default", {}).get("github_username")
+    return username or None
+
+
 def sla_for_score(score: float, cfg: dict) -> tuple[str, int]:
     for tier in cfg["sla_tiers"]:
         if score >= tier["min"]:

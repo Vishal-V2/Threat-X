@@ -1,7 +1,7 @@
 from common.config import load_yaml
 from ingest.schema import Finding
 from score.formula import score_finding
-from score.sla import sla_for_score
+from score.sla import get_github_assignee, get_owner_team, sla_for_score
 
 CFG = load_yaml("scoring.yaml")
 
@@ -51,3 +51,41 @@ def test_sla_tier_boundaries():
     assert sla_for_score(70, CFG) == ("high", 7)
     assert sla_for_score(69.9, CFG) == ("medium", 30)
     assert sla_for_score(0, CFG) == ("low", 90)
+
+
+_ASSETS_FIXTURE = {
+    "assets": {
+        "known-host": {"owner": "@appsec-lead", "team": "AppSec", "github_username": "realuser"},
+        "no-assignee-host": {"owner": "@netsec-lead", "team": "NetSec", "github_username": None},
+    },
+    "default": {"owner": "@triage", "team": "Unassigned", "github_username": None},
+}
+
+
+def test_get_owner_team_uses_configured_host(monkeypatch):
+    import score.sla as sla_mod
+    monkeypatch.setattr(sla_mod, "assets_config", lambda: _ASSETS_FIXTURE)
+    assert get_owner_team("known-host") == ("@appsec-lead", "AppSec")
+
+
+def test_get_owner_team_falls_back_to_default_for_unknown_host(monkeypatch):
+    import score.sla as sla_mod
+    monkeypatch.setattr(sla_mod, "assets_config", lambda: _ASSETS_FIXTURE)
+    assert get_owner_team("never-configured-host") == ("@triage", "Unassigned")
+
+
+def test_get_github_assignee_returns_configured_username(monkeypatch):
+    """github_username is a separate, real-GitHub-login field from `owner` --
+    `owner` is free display text (e.g. '@appsec-lead') that's never validated
+    against a real account, so it must never be the thing passed as a GitHub
+    issue assignee."""
+    import score.sla as sla_mod
+    monkeypatch.setattr(sla_mod, "assets_config", lambda: _ASSETS_FIXTURE)
+    assert get_github_assignee("known-host") == "realuser"
+
+
+def test_get_github_assignee_is_none_when_unset(monkeypatch):
+    import score.sla as sla_mod
+    monkeypatch.setattr(sla_mod, "assets_config", lambda: _ASSETS_FIXTURE)
+    assert get_github_assignee("no-assignee-host") is None
+    assert get_github_assignee("never-configured-host") is None

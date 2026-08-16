@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 
 from common.paths import ticket_state_path
 from ingest.schema import Finding
+from score.sla import get_github_assignee
 from ticket.templates import issue_body, issue_labels, issue_title
 
 
@@ -44,7 +45,7 @@ def create_tickets(scan_id: str, findings: list[Finding], min_score: float, top_
         print("[ticket] GITHUB_TOKEN/GITHUB_REPO not set — skipping ticket creation.")
         return findings
 
-    from github import Github
+    from github import Auth, Github
     from github.GithubException import GithubException
 
     candidates = sorted(
@@ -57,7 +58,7 @@ def create_tickets(scan_id: str, findings: list[Finding], min_score: float, top_
         print(f"[ticket] No findings scored >= {min_score}; nothing to ticket.")
         return findings
 
-    gh = Github(os.environ["GITHUB_TOKEN"])
+    gh = Github(auth=Auth.Token(os.environ["GITHUB_TOKEN"]))
     repo = gh.get_repo(os.environ["GITHUB_REPO"])
     state = _load_state(scan_id)
 
@@ -80,7 +81,11 @@ def create_tickets(scan_id: str, findings: list[Finding], min_score: float, top_
                 print(f"[ticket] Skipping (already exists, issue #{issue.number}): {f.title[:50]}")
                 continue
 
-            issue = repo.create_issue(title=issue_title(f), body=issue_body(f), labels=issue_labels(f))
+            assignee = get_github_assignee(f.host)
+            issue = repo.create_issue(
+                title=issue_title(f), body=issue_body(f), labels=issue_labels(f),
+                assignees=[assignee] if assignee else [],
+            )
         except GithubException as e:
             status = e.status
             reason = "insufficient token permissions (needs 'Issues: write')" if status == 403 else str(e.data)
