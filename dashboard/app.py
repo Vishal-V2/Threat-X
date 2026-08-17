@@ -1,10 +1,12 @@
 """Threat-X risk dashboard (Streamlit). Reads data/processed/<scan_id>/final_scored.parquet
 and data/runs/<scan_id>/metrics.json for the latest pipeline run.
 
-Palette: fixed categorical hues assigned by scanner identity (never by rank/filter
-state), and the fixed status palette for SLA tiers — both from the dataviz skill's
-validated default palette (references/palette.md), so hue always maps to the same
-entity across every chart on the page.
+Palette: committed dark theme end to end (page chrome via .streamlit/config.toml,
+charts here) — fixed categorical hues assigned by scanner identity (never by
+rank/filter state), and the fixed status palette for SLA tiers — all from the
+dataviz skill's validated default palette (references/palette.md, dark-mode
+column), so hue always maps to the same entity across every chart on the page,
+and nothing reads as a mismatched light card floating in a dark app.
 """
 from __future__ import annotations
 
@@ -28,16 +30,59 @@ from ticket.github_issues import is_configured as github_configured
 
 load_dotenv()
 
-# --- Validated categorical + status palette (dataviz skill, light-mode steps) ---
-SCANNER_COLORS = {"nuclei": "#2a78d6", "nmap": "#eb6834", "zap": "#1baf7a"}  # slots 1-3
+# --- Validated categorical + status palette (dataviz skill, dark-mode steps —
+# matches .streamlit/config.toml's dark theme) ---
+SCANNER_COLORS = {"nuclei": "#3987e5", "nmap": "#d95926", "zap": "#199e70"}  # slots 1-3
 SLA_COLORS = {"critical": "#d03b3b", "high": "#ec835a", "medium": "#fab219", "low": "#0ca30c"}
-INK_SECONDARY = "#52514e"
-GRID = "#e1e0d9"
+SURFACE = "#1a1a19"       # chart/card surface
+PAGE_PLANE = "#0d0d0d"
+INK_PRIMARY = "#ffffff"
+INK_SECONDARY = "#c3c2b7"
+INK_MUTED = "#898781"
+GRID = "#2c2c2a"
+BORDER = "rgba(255,255,255,0.10)"
+
+# Plotly's dark template gets us close, but we still set surface/grid/font
+# colors explicitly per-figure below so every chart matches these exact tokens
+# rather than Plotly's own built-in dark palette (which doesn't match ours).
+PLOTLY_DARK = dict(template="plotly_dark", plot_bgcolor=SURFACE, paper_bgcolor=SURFACE,
+                    font_color=INK_SECONDARY)
+
+st.markdown(f"""
+<style>
+/* Card styling for the funnel stat tiles (st.metric) — the dataviz skill's
+   stat-tile contract (label/value/delta) doesn't get a container by default
+   in Streamlit, so this gives each one a surface + hairline border instead of
+   floating loose on the page plane. */
+div[data-testid="stMetric"] {{
+    background-color: {SURFACE};
+    border: 1px solid {BORDER};
+    border-radius: 10px;
+    padding: 16px 18px;
+}}
+div[data-testid="stMetricLabel"] {{ color: {INK_MUTED}; }}
+div[data-testid="stMetricValue"] {{ color: {INK_PRIMARY}; }}
+
+/* Section headers get a bit more air and a hairline rule beneath them,
+   instead of running straight into the next block. */
+h3 {{
+    border-bottom: 1px solid {BORDER};
+    padding-bottom: 8px;
+    margin-top: 28px !important;
+}}
+
+/* Dataframe / table container: same surface + border as everything else. */
+div[data-testid="stDataFrame"] {{
+    border: 1px solid {BORDER};
+    border-radius: 8px;
+}}
+</style>
+""", unsafe_allow_html=True)
 
 st.set_page_config(page_title="Threat-X Risk Dashboard", layout="wide")
 
 
-@st.cache_data
+@st.cache_data(ttl=20)
 def available_scan_ids() -> list[str]:
     """Ordered oldest -> newest by when each scan finished scoring, not
     alphabetically — the sidebar defaults to the last entry in this list, and
@@ -61,7 +106,7 @@ def clean(val):
     return val if pd.notna(val) else None
 
 
-@st.cache_data
+@st.cache_data(ttl=20)
 def load_scan(scan_id: str) -> tuple[pd.DataFrame, dict]:
     df = pd.read_parquet(final_scored_path(scan_id))
     m_path = metrics_path(scan_id)
@@ -78,7 +123,31 @@ def contributing_label(row) -> str:
     return " + ".join(sorted(scanners))
 
 
+def assignee_display(row) -> str:
+    """Deliberately NOT cached, unlike load_scan() above — this needs to show
+    the true current assignee immediately after you use the Assign/Unassign
+    buttons below (which already call st.rerun()), not a value that could
+    still be sitting in a TTL'd cache from moments before the click."""
+    issue_number = clean(row["github_issue_number"])
+    if not issue_number:
+        return "—"
+    if not github_configured():
+        return "_(set GITHUB_TOKEN to see)_"
+    try:
+        assignees = get_issue_assignees(int(issue_number))
+    except Exception:
+        return "_(lookup failed)_"
+    return ", ".join(assignees) if assignees else "_unassigned_"
+
+
 st.title("Threat-X — Risk Prioritization Dashboard")
+
+# Data auto-refreshes every 20s (cache TTL below), but re-running a phase from
+# the CLI and wanting to see it *right now* is common enough to also want an
+# on-demand escape hatch rather than waiting out the TTL.
+if st.sidebar.button("🔄 Refresh data"):
+    st.cache_data.clear()
+    st.rerun()
 
 scan_ids = available_scan_ids()
 if not scan_ids:
@@ -126,17 +195,29 @@ filtered = filtered.sort_values("risk_score", ascending=False)
 
 # --- Ranked findings table -----------------------------------------------
 st.subheader(f"Ranked action list ({len(filtered)} of {len(actionable)} findings)")
+filtered = filtered.copy()
+filtered["assignee_display"] = filtered.apply(assignee_display, axis=1)
 display_cols = ["risk_score", "sla_tier", "title", "host", "cve_ids", "in_kev",
                  "epss_score", "cvss_v3_score", "contributing_label", "owner",
-                 "sla_due_date", "github_issue_url"]
+                 "sla_due_date", "github_issue_url", "assignee_display"]
 st.dataframe(
     filtered[display_cols].rename(columns={
         "risk_score": "Score", "sla_tier": "SLA", "title": "Finding", "host": "Host",
         "cve_ids": "CVE(s)", "in_kev": "KEV", "epss_score": "EPSS",
         "cvss_v3_score": "CVSS", "contributing_label": "Found by", "owner": "Owner",
         "sla_due_date": "Due", "github_issue_url": "Ticket",
+        "assignee_display": "Assigned to",
     }),
     use_container_width=True, hide_index=True, height=420,
+    # Explicit widths on the widest columns so the grid's own content width
+    # can exceed the container instead of squeezing everything to fit —
+    # that's what actually turns on horizontal scrolling within the table.
+    column_config={
+        "Finding": st.column_config.TextColumn(width="large"),
+        "CVE(s)": st.column_config.TextColumn(width="medium"),
+        "Ticket": st.column_config.TextColumn(width="medium"),
+        "Assigned to": st.column_config.TextColumn(width="medium"),
+    },
 )
 
 # --- Finding detail: score breakdown + evidence ----------------------------
@@ -159,8 +240,8 @@ if len(filtered):
             marker_color=SCANNER_COLORS["nuclei"],
         ))
         fig.update_layout(title="Score breakdown (points contributed)", height=280,
-                           margin=dict(l=10, r=10, t=40, b=10), template="plotly_white",
-                           xaxis_gridcolor=GRID, plot_bgcolor="white")
+                           margin=dict(l=10, r=10, t=40, b=10), xaxis_gridcolor=GRID,
+                           **PLOTLY_DARK)
         st.plotly_chart(fig, use_container_width=True)
     with right:
         ai_summary = clean(row["ai_summary"])
@@ -234,8 +315,8 @@ with col_a:
         x=raw_counts.index, y=raw_counts.values,
         marker_color=[SCANNER_COLORS.get(s, "#898781") for s in raw_counts.index],
     ))
-    fig.update_layout(height=320, template="plotly_white", plot_bgcolor="white",
-                       yaxis_gridcolor=GRID, margin=dict(l=10, r=10, t=10, b=10))
+    fig.update_layout(height=320, yaxis_gridcolor=GRID,
+                       margin=dict(l=10, r=10, t=10, b=10), **PLOTLY_DARK)
     st.plotly_chart(fig, use_container_width=True)
 
 with col_b:
@@ -246,8 +327,8 @@ with col_b:
         x=tier_counts.index, y=tier_counts.values,
         marker_color=[SLA_COLORS[t] for t in tier_order],
     ))
-    fig.update_layout(height=320, template="plotly_white", plot_bgcolor="white",
-                       yaxis_gridcolor=GRID, margin=dict(l=10, r=10, t=10, b=10))
+    fig.update_layout(height=320, yaxis_gridcolor=GRID,
+                       margin=dict(l=10, r=10, t=10, b=10), **PLOTLY_DARK)
     st.plotly_chart(fig, use_container_width=True)
 
 st.subheader("Scanner overlap on final findings")
@@ -256,10 +337,10 @@ fig = go.Figure(go.Bar(
     x=overlap_counts.values, y=overlap_counts.index, orientation="h",
     marker_color=INK_SECONDARY,
 ))
-fig.update_layout(height=max(200, 40 * len(overlap_counts)), template="plotly_white",
-                   plot_bgcolor="white", xaxis_gridcolor=GRID,
+fig.update_layout(height=max(200, 40 * len(overlap_counts)), xaxis_gridcolor=GRID,
                    margin=dict(l=10, r=10, t=10, b=10),
-                   xaxis_title="Findings", yaxis_title="Contributing scanner(s)")
+                   xaxis_title="Findings", yaxis_title="Contributing scanner(s)",
+                   **PLOTLY_DARK)
 st.plotly_chart(fig, use_container_width=True)
 
 st.caption(f"Scan `{scan_id}` — dedup: {metrics.get('dedup_pct', 0)}%, "
