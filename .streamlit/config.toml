@@ -1,0 +1,13 @@
+# Committed dark theme — dataviz skill's validated dark-mode tokens
+# (references/palette.md), applied consistently so page chrome and charts
+# read as one system instead of Streamlit's generic default.
+[theme]
+base = "dark"
+primaryColor = "#3987e5"              # categorical slot 1 (dark), used for buttons/active states
+backgroundColor = "#0d0d0d"           # page plane (dark)
+secondaryBackgroundColor = "#1a1a19"  # chart/card surface (dark)
+textColor = "#ffffff"                 # primary ink (dark)
+font = "sans serif"
+
+[theme.sidebar]
+backgroundColor = "#161613"

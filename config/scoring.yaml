@@ -50,5 +50,5 @@ sla_tiers:
 
 # Ticketing (ticket/github_issues.py)
 ticketing:
-  min_score_to_ticket: 70
+  min_score_to_ticket: 0  # no threshold — every actionable finding is eligible (still capped by top_n)
   top_n: 25

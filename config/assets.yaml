@@ -6,26 +6,27 @@
 # body — they never have to be real accounts. `github_username`, if set, is
 # what actually gets used as the GitHub Issue's Assignee (ticket/github_issues.py) —
 # it must be a real GitHub login with at least read access to this repo, or
-# GitHub silently drops it as an assignee (the issue still gets created).
+# GitHub rejects it outright (a 422 on issue creation/edit — it does NOT
+# silently drop an invalid assignee).
 assets:
   juice-shop:
     criticality: high
-    owner: "@appsec-lead"
+    owner: "@Vishal-V2"
     team: "AppSec"
     github_username: "Vishal-V2"
   localhost:
     criticality: high
-    owner: "@appsec-lead"
+    owner: "@Vishal-V2"
     team: "AppSec"
     github_username: "Vishal-V2"
   metasploitable:
     criticality: medium
-    owner: "@netsec-lead"
+    owner: "@Vishal-V2"
     team: "NetSec"
     github_username: "Vishal-V2"
 
 default:
   criticality: unknown
-  owner: "@triage"
+  owner: "@Vishal-V2"
   team: "Unassigned"
-  github_username: null
+  github_username: "Vishal-V2"
