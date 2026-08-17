@@ -9,6 +9,7 @@ data/normalized/
 data/processed/
 data/cache/
 data/runs/
+data/.target_env
 !data/**/.gitkeep
 
 # Frontend (frontend/) — installed deps and build output, never committed
