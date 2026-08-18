@@ -34,6 +34,20 @@ def test_kev_and_exploitdb_boosts_dont_double_count():
     assert breakdown["exploitdb_boost"] == 0.0  # suppressed because KEV already applied
 
 
+def test_kev_only_applies_kev_boost():
+    f = _finding(cvss_v3_score=5.0, epss_score=0.1, in_kev=True, exploit_db_available=False)
+    _, breakdown = score_finding(f, CFG, criticality="medium")
+    assert breakdown["kev_boost"] == 20
+    assert breakdown["exploitdb_boost"] == 0.0
+
+
+def test_exploitdb_only_applies_exploitdb_boost():
+    f = _finding(cvss_v3_score=5.0, epss_score=0.1, in_kev=False, exploit_db_available=True)
+    _, breakdown = score_finding(f, CFG, criticality="medium")
+    assert breakdown["kev_boost"] == 0
+    assert breakdown["exploitdb_boost"] == 10
+
+
 def test_low_epss_finding_scores_lower_than_high_epss_despite_equal_cvss():
     """This is the 'not raw CVSS alone' criterion in miniature: two findings with
     identical CVSS but different real-world exploitation likelihood must not
