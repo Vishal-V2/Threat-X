@@ -213,7 +213,11 @@ export default function FindingsTable({
                     )}
                     {visibleColumns.sla && (
                       <td>
-                        <SlaBadge tier={f.sla_tier} />
+                        <SlaBadge
+                          tier={f.sla_tier}
+                          isDuplicate={f.is_duplicate}
+                          isSuppressed={f.suppressed}
+                        />
                       </td>
                     )}
                     {visibleColumns.title && (

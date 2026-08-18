@@ -14,6 +14,7 @@ export default function DashboardPage({
   allFindings = [],
   actionableFindings = [],
   onNavigate,
+  onKpiClick,
   selectedFinding,
   onSelectFinding,
   onCloseFinding,
@@ -23,6 +24,15 @@ export default function DashboardPage({
   const criticalCount = actionableFindings.filter((f) => (f.sla_tier || '').toLowerCase() === 'critical').length;
   const highCount = actionableFindings.filter((f) => (f.sla_tier || '').toLowerCase() === 'high').length;
   const kevCount = actionableFindings.filter((f) => f.in_kev).length;
+  const dedupFpCount = (metrics.duplicate_count ?? 0) + (metrics.suppressed_count ?? 0);
+
+  const handleKpiCardClick = (kpiType) => {
+    if (onKpiClick) {
+      onKpiClick(kpiType);
+    } else if (onNavigate) {
+      onNavigate('findings');
+    }
+  };
 
   return (
     <div className="page-container">
@@ -43,30 +53,40 @@ export default function DashboardPage({
           value={metrics.final_count ?? actionableFindings.length}
           subtext={`-${metrics.noise_reduction_pct ?? 0}% noise reduction`}
           variant="primary"
+          onClick={() => handleKpiCardClick('actionable')}
+          ariaLabel={`View ${metrics.final_count ?? actionableFindings.length} actionable findings`}
         />
         <KpiCard
           label="Critical Severity"
           value={criticalCount}
           subtext={criticalCount > 0 ? `${criticalCount} immediate remediation` : 'None identified'}
           variant="critical"
+          onClick={() => handleKpiCardClick('critical')}
+          ariaLabel={`View ${criticalCount} critical severity findings`}
         />
         <KpiCard
           label="CISA KEV Active"
           value={kevCount}
           subtext={kevCount > 0 ? `${kevCount} in wild exploitation` : 'No active exploits'}
           variant="critical"
+          onClick={() => handleKpiCardClick('kev')}
+          ariaLabel={`View ${kevCount} CISA KEV active findings`}
         />
         <KpiCard
           label="High Severity"
           value={highCount}
           subtext={`${highCount} SLA action required`}
           variant="high"
+          onClick={() => handleKpiCardClick('high')}
+          ariaLabel={`View ${highCount} high severity findings`}
         />
         <KpiCard
           label="Deduplicated / FP"
-          value={(metrics.duplicate_count ?? 0) + (metrics.suppressed_count ?? 0)}
+          value={dedupFpCount}
           subtext={`${metrics.raw_count ?? allFindings.length} raw scanner inputs`}
           variant="medium"
+          onClick={() => handleKpiCardClick('dedup_fp')}
+          ariaLabel={`View ${dedupFpCount} deduplicated and false positive findings`}
         />
       </section>
 

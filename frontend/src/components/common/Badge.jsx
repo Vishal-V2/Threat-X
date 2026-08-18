@@ -1,6 +1,12 @@
 import React from 'react';
 
-export function SlaBadge({ tier }) {
+export function SlaBadge({ tier, isDuplicate, isSuppressed }) {
+  if (isDuplicate) {
+    return <span className="badge badge-info" style={{ background: 'var(--bg-surface-subtle)', color: 'var(--text-muted)' }}>Duplicate</span>;
+  }
+  if (isSuppressed) {
+    return <span className="badge badge-medium" style={{ background: 'var(--sev-medium-bg)', color: 'var(--sev-medium)', borderColor: 'var(--sev-medium-border)' }}>Suppressed</span>;
+  }
   if (!tier) return <span className="badge badge-info">—</span>;
   const t = tier.toLowerCase();
   let badgeClass = 'badge-info';

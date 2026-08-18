@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, X, Filter, RotateCcw } from 'lucide-react';
+import { Search, X, RotateCcw } from 'lucide-react';
 
 export default function FindingFilters({
   searchTerm,
@@ -15,6 +15,8 @@ export default function FindingFilters({
   onKevChange,
   minScore,
   onMinScoreChange,
+  scope = 'actionable',
+  onScopeChange,
   onResetFilters,
   totalFiltered,
   totalCount,
@@ -28,7 +30,8 @@ export default function FindingFilters({
     tierFilter.length > 0 ||
     hostFilter.length > 0 ||
     kevOnly ||
-    minScore > 0;
+    minScore > 0 ||
+    scope !== 'actionable';
 
   return (
     <div className="filter-bar">
@@ -47,6 +50,20 @@ export default function FindingFilters({
 
         {/* Filter Dropdowns */}
         <div className="filter-inputs-group">
+          {/* Scope Selector */}
+          {onScopeChange && (
+            <select
+              className="filter-select"
+              value={scope}
+              onChange={(e) => onScopeChange(e.target.value)}
+              style={{ fontWeight: 600, color: scope !== 'actionable' ? 'var(--primary)' : 'var(--text-main)' }}
+            >
+              <option value="actionable">Scope: Actionable</option>
+              <option value="dedup_fp">Scope: Deduplicated / FP</option>
+              <option value="all">Scope: All Ingested</option>
+            </select>
+          )}
+
           {/* Scanner */}
           <select
             className="filter-select"
@@ -136,6 +153,18 @@ export default function FindingFilters({
       {hasActiveFilters && (
         <div className="filter-chips-row">
           <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Active filters:</span>
+          {scope === 'dedup_fp' && (
+            <span className="filter-chip" style={{ borderColor: 'var(--sev-medium-border)', background: 'var(--sev-medium-bg)' }}>
+              Scope: Deduplicated / FP
+              {onScopeChange && <X size={12} className="filter-chip-remove" onClick={() => onScopeChange('actionable')} />}
+            </span>
+          )}
+          {scope === 'all' && (
+            <span className="filter-chip">
+              Scope: All Ingested
+              {onScopeChange && <X size={12} className="filter-chip-remove" onClick={() => onScopeChange('actionable')} />}
+            </span>
+          )}
           {searchTerm && (
             <span className="filter-chip">
               Search: "{searchTerm}"
@@ -161,7 +190,7 @@ export default function FindingFilters({
             </span>
           ))}
           {kevOnly && (
-            <span className="filter-chip">
+            <span className="filter-chip" style={{ borderColor: 'var(--sev-critical-border)', background: 'var(--sev-critical-bg)' }}>
               KEV Active
               <X size={12} className="filter-chip-remove" onClick={() => onKevChange(false)} />
             </span>

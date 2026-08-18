@@ -370,6 +370,27 @@ body {
   border-left: 3px solid var(--border-medium);
 }
 
+.kpi-card.clickable {
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.kpi-card.clickable:hover {
+  border-color: var(--border-medium);
+  box-shadow: var(--shadow-card);
+  background-color: #fafbfc;
+}
+
+.kpi-card.clickable:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.kpi-card.clickable:active {
+  background-color: var(--bg-surface-subtle);
+}
+
 .kpi-card.accent-primary { border-left-color: var(--primary); }
 .kpi-card.accent-critical { border-left-color: var(--sev-critical); }
 .kpi-card.accent-high { border-left-color: var(--sev-high); }
