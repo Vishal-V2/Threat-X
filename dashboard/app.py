@@ -170,6 +170,30 @@ c3.metric("Suppressed (FP / accepted risk)", metrics.get("suppressed_count", "�
 c4.metric("Final ranked findings", metrics.get("final_count", "—"),
           f"-{metrics.get('noise_reduction_pct', 0)}% total noise")
 
+# --- Suppressed findings (false positives / accepted risk) -----------------
+# These never leave the parquet — dedup/suppress.py only flags them
+# (suppressed=True + a reason), it doesn't drop rows — so nothing extra needs
+# fetching here; just show the rows that already carry the flag.
+suppressed_df = df[df["suppressed"] & (~df["is_duplicate"])].copy()
+with st.expander(f"🔎 View suppressed findings ({len(suppressed_df)}) — false positives & accepted risk"):
+    if len(suppressed_df):
+        suppressed_df["contributing_label"] = suppressed_df.apply(contributing_label, axis=1)
+        sup_cols = ["title", "host", "scanner_severity", "cve_ids", "contributing_label", "suppression_reason"]
+        st.dataframe(
+            suppressed_df[sup_cols].rename(columns={
+                "title": "Finding", "host": "Host", "scanner_severity": "Severity",
+                "cve_ids": "CVE(s)", "contributing_label": "Found by",
+                "suppression_reason": "Why suppressed",
+            }),
+            use_container_width=True, hide_index=True,
+            column_config={
+                "Finding": st.column_config.TextColumn(width="large"),
+                "Why suppressed": st.column_config.TextColumn(width="large"),
+            },
+        )
+    else:
+        st.caption("No findings were suppressed in this scan.")
+
 # --- Filters -----------------------------------------------------------
 actionable = df[(~df["is_duplicate"]) & (~df["suppressed"])].copy()
 actionable["contributing_label"] = actionable.apply(contributing_label, axis=1)
