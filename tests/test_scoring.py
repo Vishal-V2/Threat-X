@@ -74,6 +74,13 @@ def test_sla_tier_boundaries():
     assert sla_for_score(0, CFG) == ("low", 90)
 
 
+def test_sla_tier_exact_thresholds():
+    assert sla_for_score(90, CFG) == ("critical", 3)
+    assert sla_for_score(70, CFG) == ("high", 7)
+    assert sla_for_score(40, CFG) == ("medium", 30)
+    assert sla_for_score(39.9, CFG) == ("low", 90)
+
+
 _ASSETS_FIXTURE = {
     "assets": {
         "known-host": {"owner": "@appsec-lead", "team": "AppSec", "github_username": "realuser"},
