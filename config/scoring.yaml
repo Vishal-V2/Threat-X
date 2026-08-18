@@ -50,5 +50,9 @@ sla_tiers:
 
 # Ticketing (ticket/github_issues.py)
 ticketing:
-  min_score_to_ticket: 70
+  # Only findings scoring >= 20 are ticketed. A score of 0 would create tickets
+  # for every informational/low-severity finding, flooding the issue tracker.
+  # 20 filters out trivial findings while still catching low-CVSS issues that
+  # have EPSS signal or asset-criticality weight pushing them above baseline.
+  min_score_to_ticket: 20
   top_n: 25
