@@ -29,6 +29,10 @@ def _fetch_raw(cve_id: str) -> dict:
     resp = requests.get(NVD_BASE, params={"cveId": cve_id}, headers=headers, timeout=15)
     if resp.status_code in (403, 429):
         raise NvdRateLimitError(f"NVD rate limited (status {resp.status_code}) for {cve_id}")
+    # Retry transient server-side errors (500/502/503/504 etc.) — previously these
+    # were swallowed by raise_for_status() and degraded silently to severity fallback.
+    if resp.status_code >= 500:
+        raise NvdRateLimitError(f"NVD transient server error (status {resp.status_code}) for {cve_id}")
     resp.raise_for_status()
     return resp.json()
 

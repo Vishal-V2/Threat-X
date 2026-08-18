@@ -21,10 +21,13 @@ def resolve_candidates(findings: list[Finding], candidates: list[tuple[int, int,
         return
 
     if not is_available():
-        log.append({
-            "note": f"Skipped LLM semantic pass for {len(candidates)} candidate pair(s): "
-                    "GEMINI_API_KEY not set. Candidates left un-merged."
-        })
+        msg = (
+            f"[warn] GEMINI_API_KEY not set — LLM semantic dedup pass skipped for "
+            f"{len(candidates)} candidate pair(s). Noise-reduction will be lower than "
+            "usual; set GEMINI_API_KEY to enable the full dedup pass."
+        )
+        print(msg)
+        log.append({"note": msg})
         return
 
     id_to_pair = {}
