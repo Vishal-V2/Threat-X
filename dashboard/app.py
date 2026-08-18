@@ -225,14 +225,21 @@ filtered["assignee_display"] = filtered.apply(assignee_display, axis=1)
 display_cols = ["risk_score", "sla_tier", "title", "host", "cve_ids", "in_kev",
                  "epss_score", "cvss_v3_score", "contributing_label", "owner",
                  "sla_due_date", "github_issue_url", "assignee_display"]
+display_df = filtered[display_cols].rename(columns={
+    "risk_score": "Score", "sla_tier": "SLA", "title": "Finding", "host": "Host",
+    "cve_ids": "CVE(s)", "in_kev": "KEV", "epss_score": "EPSS",
+    "cvss_v3_score": "CVSS", "contributing_label": "Found by", "owner": "Owner",
+    "sla_due_date": "Due", "github_issue_url": "Ticket",
+    "assignee_display": "Assigned to",
+})
+# Only the SLA text gets colored by tier (mentor's ask) — the rest of the
+# table keeps its normal styling, no row/cell backgrounds touched.
+styled_df = display_df.style.map(
+    lambda tier: f"color: {SLA_COLORS.get(tier, INK_PRIMARY)}; font-weight: 600",
+    subset=["SLA"],
+)
 st.dataframe(
-    filtered[display_cols].rename(columns={
-        "risk_score": "Score", "sla_tier": "SLA", "title": "Finding", "host": "Host",
-        "cve_ids": "CVE(s)", "in_kev": "KEV", "epss_score": "EPSS",
-        "cvss_v3_score": "CVSS", "contributing_label": "Found by", "owner": "Owner",
-        "sla_due_date": "Due", "github_issue_url": "Ticket",
-        "assignee_display": "Assigned to",
-    }),
+    styled_df,
     use_container_width=True, hide_index=True, height=420,
     # Explicit widths on the widest columns so the grid's own content width
     # can exceed the container instead of squeezing everything to fit —
@@ -374,42 +381,43 @@ else:
     st.info("No findings match the current filters.")
 
 # --- Severity distribution & scanner overlap --------------------------
-col_a, col_b = st.columns(2)
+with st.expander("📈 Statistics"):
+    col_a, col_b = st.columns(2)
 
-with col_a:
-    st.subheader("Raw findings by scanner")
-    raw_counts = df["source_scanner"].value_counts()
+    with col_a:
+        st.subheader("Raw findings by scanner")
+        raw_counts = df["source_scanner"].value_counts()
+        fig = go.Figure(go.Bar(
+            x=raw_counts.index, y=raw_counts.values,
+            marker_color=[SCANNER_COLORS.get(s, "#898781") for s in raw_counts.index],
+        ))
+        fig.update_layout(height=320, yaxis_gridcolor=GRID,
+                           margin=dict(l=10, r=10, t=10, b=10), **PLOTLY_DARK)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with col_b:
+        st.subheader("Final ranked findings by SLA tier")
+        tier_order = ["critical", "high", "medium", "low"]
+        tier_counts = actionable["sla_tier"].value_counts().reindex(tier_order).fillna(0)
+        fig = go.Figure(go.Bar(
+            x=tier_counts.index, y=tier_counts.values,
+            marker_color=[SLA_COLORS[t] for t in tier_order],
+        ))
+        fig.update_layout(height=320, yaxis_gridcolor=GRID,
+                           margin=dict(l=10, r=10, t=10, b=10), **PLOTLY_DARK)
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.subheader("Scanner overlap on final findings")
+    overlap_counts = actionable["contributing_label"].value_counts().sort_values()
     fig = go.Figure(go.Bar(
-        x=raw_counts.index, y=raw_counts.values,
-        marker_color=[SCANNER_COLORS.get(s, "#898781") for s in raw_counts.index],
+        x=overlap_counts.values, y=overlap_counts.index, orientation="h",
+        marker_color=INK_SECONDARY,
     ))
-    fig.update_layout(height=320, yaxis_gridcolor=GRID,
-                       margin=dict(l=10, r=10, t=10, b=10), **PLOTLY_DARK)
+    fig.update_layout(height=max(200, 40 * len(overlap_counts)), xaxis_gridcolor=GRID,
+                       margin=dict(l=10, r=10, t=10, b=10),
+                       xaxis_title="Findings", yaxis_title="Contributing scanner(s)",
+                       **PLOTLY_DARK)
     st.plotly_chart(fig, use_container_width=True)
-
-with col_b:
-    st.subheader("Final ranked findings by SLA tier")
-    tier_order = ["critical", "high", "medium", "low"]
-    tier_counts = actionable["sla_tier"].value_counts().reindex(tier_order).fillna(0)
-    fig = go.Figure(go.Bar(
-        x=tier_counts.index, y=tier_counts.values,
-        marker_color=[SLA_COLORS[t] for t in tier_order],
-    ))
-    fig.update_layout(height=320, yaxis_gridcolor=GRID,
-                       margin=dict(l=10, r=10, t=10, b=10), **PLOTLY_DARK)
-    st.plotly_chart(fig, use_container_width=True)
-
-st.subheader("Scanner overlap on final findings")
-overlap_counts = actionable["contributing_label"].value_counts().sort_values()
-fig = go.Figure(go.Bar(
-    x=overlap_counts.values, y=overlap_counts.index, orientation="h",
-    marker_color=INK_SECONDARY,
-))
-fig.update_layout(height=max(200, 40 * len(overlap_counts)), xaxis_gridcolor=GRID,
-                   margin=dict(l=10, r=10, t=10, b=10),
-                   xaxis_title="Findings", yaxis_title="Contributing scanner(s)",
-                   **PLOTLY_DARK)
-st.plotly_chart(fig, use_container_width=True)
 
 st.caption(f"Scan `{scan_id}` — dedup: {metrics.get('dedup_pct', 0)}%, "
            f"FP removed: {metrics.get('fp_removed_pct', 0)}%, "
