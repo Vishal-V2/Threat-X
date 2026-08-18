@@ -1,7 +1,14 @@
+from datetime import date
+
 from common.config import load_yaml
 from ingest.schema import Finding
 from score.formula import get_asset_criticality, score_finding
-from score.sla import get_github_assignee, get_owner_team, sla_for_score
+from score.sla import (
+    apply_sla_and_ownership,
+    get_github_assignee,
+    get_owner_team,
+    sla_for_score,
+)
 
 CFG = load_yaml("scoring.yaml")
 
@@ -116,3 +123,12 @@ def test_get_asset_criticality_returns_unknown_when_host_entry_lacks_criticality
     import score.formula as formula_mod
     monkeypatch.setattr(formula_mod, "assets_config", lambda: _CRITICALITY_ASSETS_FIXTURE)
     assert get_asset_criticality("incomplete-host") == "unknown"
+
+
+def test_apply_sla_and_ownership_sets_high_tier_due_date_and_owner():
+    f = _finding(host="juice-shop", risk_score=75.0)
+    apply_sla_and_ownership(f, CFG, scan_date=date(2026, 1, 15))
+    assert f.sla_tier == "high"
+    assert f.sla_due_date == date(2026, 1, 22)
+    assert f.owner == "@Vishal-V2"
+    assert f.team == "AppSec"
