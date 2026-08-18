@@ -24,8 +24,9 @@ import plotly.graph_objects as go
 import streamlit as st
 from dotenv import load_dotenv
 
+from ai.remediation import generate_remediation_guidance
 from common.paths import DATA_DIR, final_scored_path, metrics_path
-from ticket.github_issues import assign_issue, get_issue_assignees
+from ticket.github_issues import add_remediation_comment, assign_issue, get_issue_assignees
 from ticket.github_issues import is_configured as github_configured
 
 load_dotenv()
@@ -302,6 +303,75 @@ if len(filtered):
                             st.error(f"GitHub API error ({e.status}).")
         else:
             st.caption("_No ticket yet for this finding — nothing to assign._")
+
+    # --- 🤖 AI Guide -----------------------------------------------------------
+    st.markdown("---")
+    st.markdown("### 🤖 AI Guide")
+    st.caption("Select a vulnerability finding or ticket below to request AI-powered step-by-step remediation assistance.")
+
+    # Dedicated finding/ticket selector inside the AI Guide section
+    guide_labels = []
+    for r in filtered.itertuples():
+        ticket_str = f"Ticket #{int(r.github_issue_number)}" if clean(getattr(r, "github_issue_number", None)) else "No Ticket"
+        cve_str = f" ({', '.join(r.cve_ids)})" if getattr(r, "cve_ids", None) else ""
+        guide_labels.append(f"[{r.risk_score:.1f}] {r.title[:60]}{cve_str} — {r.host} | {ticket_str}")
+
+    guide_idx = st.selectbox(
+        "Select vulnerability / ticket for AI assistance:",
+        range(len(guide_labels)),
+        format_func=lambda i: guide_labels[i],
+        key="ai_guide_finding_selector",
+    )
+    guide_row = filtered.iloc[guide_idx]
+
+    finding_id = str(guide_row["finding_id"]) if "finding_id" in guide_row else "default"
+    rem_key = f"remediation_res_{finding_id}"
+
+    if rem_key not in st.session_state:
+        st.caption("**Status:** Ready")
+
+    col_rem_btn, _ = st.columns([2, 3])
+    with col_rem_btn:
+        if st.button("🤖 How Do I Resolve This?", key=f"btn_resolve_{finding_id}"):
+            with st.spinner("Analyzing vulnerability context and generating AI remediation guide..."):
+                res = generate_remediation_guidance(guide_row)
+                st.session_state[rem_key] = res
+                st.rerun()
+
+    if rem_key in st.session_state:
+        res = st.session_state[rem_key]
+        if not res.get("success", False):
+            if res.get("error_type") == "missing_api_key":
+                st.warning("AI remediation guidance is unavailable because GEMINI_API_KEY is not configured.")
+            else:
+                st.error(res.get("message", "An error occurred while generating guidance."))
+        else:
+            st.markdown("#### 🤖 AI Guide")
+            st.markdown(res["markdown"])
+
+            col_copy, col_gh = st.columns(2)
+            with col_copy:
+                st.download_button(
+                    label="📋 Copy Guide",
+                    data=res["markdown"],
+                    file_name=f"remediation_{finding_id[:8]}.md",
+                    mime="text/markdown",
+                    key=f"dl_rem_{finding_id}",
+                )
+            with col_gh:
+                issue_number_val = clean(guide_row["github_issue_number"])
+                if issue_number_val:
+                    if st.button("🐙 Add Remediation Guide to GitHub Issue", key=f"btn_gh_rem_{finding_id}"):
+                        if not github_configured():
+                            st.warning("Set GITHUB_TOKEN and GITHUB_REPO in .env to add comments to GitHub issues.")
+                        else:
+                            try:
+                                comment_url = add_remediation_comment(int(issue_number_val), res["markdown"])
+                                st.success(f"Added remediation guide to GitHub Issue #{int(issue_number_val)}: {comment_url}")
+                            except Exception as e:
+                                st.error(f"Failed to post comment to GitHub: {str(e)}")
+                else:
+                    st.caption("_No ticket yet for this finding — cannot post comment._")
 else:
     st.info("No findings match the current filters.")
 
