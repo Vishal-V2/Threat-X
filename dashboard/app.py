@@ -245,7 +245,7 @@ st.dataframe(
     },
 )
 
-# --- Finding detail: score breakdown + evidence ----------------------------
+# --- Finding detail: summary + evidence/fix tabs ---------------------------
 st.subheader("Finding detail")
 if len(filtered):
     labels = [f"[{row.risk_score:.1f}] {row.title[:70]} — {row.host}"
@@ -253,9 +253,20 @@ if len(filtered):
     selected_idx = st.selectbox("Select a finding", range(len(labels)),
                                  format_func=lambda i: labels[i])
     row = filtered.iloc[selected_idx]
+    finding_id = str(row["finding_id"])
 
-    left, right = st.columns([2, 3])
-    with left:
+    ai_summary = clean(row["ai_summary"])
+    st.markdown(f"**Why this matters:** {ai_summary or '_(AI summary not generated — set GEMINI_API_KEY)_'}")
+    st.markdown(f"- **SLA:** {row['sla_tier']} — due {row['sla_due_date']}, owner {row['owner']} ({row['team']})")
+    st.markdown(f"- **Found by:** {row['contributing_label']}")
+    issue_url = clean(row["github_issue_url"])
+    issue_number = clean(row["github_issue_number"])
+    if issue_url:
+        st.markdown(f"- **Ticket:** [{issue_url}]({issue_url})")
+
+    # Collapsed by default — the chart was previously always-on and pushed
+    # everything else down; it's supplementary detail, not the headline.
+    with st.expander("Score breakdown (points contributed)"):
         breakdown = row["score_breakdown"]
         breakdown = json.loads(breakdown) if isinstance(breakdown, str) else breakdown
         components = {k: v for k, v in (breakdown or {}).items()
@@ -264,138 +275,101 @@ if len(filtered):
             x=list(components.values()), y=list(components.keys()), orientation="h",
             marker_color=SCANNER_COLORS["nuclei"],
         ))
-        fig.update_layout(title="Score breakdown (points contributed)", height=280,
-                           margin=dict(l=10, r=10, t=40, b=10), xaxis_gridcolor=GRID,
-                           **PLOTLY_DARK)
+        fig.update_layout(height=280, margin=dict(l=10, r=10, t=10, b=10),
+                           xaxis_gridcolor=GRID, **PLOTLY_DARK)
         st.plotly_chart(fig, use_container_width=True)
-    with right:
-        ai_summary = clean(row["ai_summary"])
-        st.markdown(f"**Why this matters:** {ai_summary or '_(AI summary not generated — set GEMINI_API_KEY)_'}")
-        st.markdown(f"- **SLA:** {row['sla_tier']} — due {row['sla_due_date']}, owner {row['owner']} ({row['team']})")
-        st.markdown(f"- **Found by:** {row['contributing_label']}")
-        issue_url = clean(row["github_issue_url"])
-        issue_number = clean(row["github_issue_number"])
-        if issue_url:
-            st.markdown(f"- **Ticket:** [{issue_url}]({issue_url})")
+
+    tab_evidence, tab_fix = st.tabs(["🔍 Evidence", "🔧 Fix"])
+    with tab_evidence:
         evidence = row["raw_evidence"]
         evidence = json.loads(evidence) if isinstance(evidence, str) else evidence
-        with st.expander("Evidence"):
-            st.json(evidence)
-
-        # --- Assign the ticket, right from here — the one write action this
-        # dashboard performs; everything else on the page stays read-only. ---
-        if issue_number:
-            issue_number = int(issue_number)
-            st.markdown("**Assign ticket**")
-            if not github_configured():
-                st.caption("_Set GITHUB_TOKEN/GITHUB_REPO in .env to enable assignment._")
-            else:
-                from github.GithubException import GithubException
-
-                try:
-                    current = get_issue_assignees(issue_number)
-                except GithubException as e:
-                    current = []
-                    st.caption(f"Couldn't fetch current assignees ({e.status}).")
-                st.caption(f"Currently assigned: {', '.join(current) if current else '_none_'}")
-
-                new_names = st.text_input(
-                    "GitHub username(s), comma-separated", key=f"assign_input_{issue_number}",
-                    placeholder="e.g. alice, bob",
-                )
-                col_assign, col_unassign = st.columns(2)
-                with col_assign:
-                    if st.button("Assign", key=f"assign_btn_{issue_number}"):
-                        usernames = [u.strip() for u in new_names.split(",") if u.strip()]
-                        if not usernames:
-                            st.warning("Enter at least one GitHub username first.")
-                        else:
-                            try:
-                                assign_issue(issue_number, usernames)
-                                st.success(f"Issue #{issue_number} assigned to: {', '.join(usernames)}")
-                                st.rerun()
-                            except GithubException as e:
-                                st.error(f"GitHub API error ({e.status}): usually means that "
-                                         f"username isn't a collaborator on this repo yet.")
-                with col_unassign:
-                    if st.button("Unassign all", key=f"unassign_btn_{issue_number}"):
-                        try:
-                            assign_issue(issue_number, [])
-                            st.success(f"Issue #{issue_number} unassigned.")
-                            st.rerun()
-                        except GithubException as e:
-                            st.error(f"GitHub API error ({e.status}).")
-        else:
-            st.caption("_No ticket yet for this finding — nothing to assign._")
-
-    # --- 🤖 AI Guide -----------------------------------------------------------
-    st.markdown("---")
-    st.markdown("### 🤖 AI Guide")
-    st.caption("Select a vulnerability finding or ticket below to request AI-powered step-by-step remediation assistance.")
-
-    # Dedicated finding/ticket selector inside the AI Guide section
-    guide_labels = []
-    for r in filtered.itertuples():
-        ticket_str = f"Ticket #{int(r.github_issue_number)}" if clean(getattr(r, "github_issue_number", None)) else "No Ticket"
-        cve_str = f" ({', '.join(r.cve_ids)})" if getattr(r, "cve_ids", None) else ""
-        guide_labels.append(f"[{r.risk_score:.1f}] {r.title[:60]}{cve_str} — {r.host} | {ticket_str}")
-
-    guide_idx = st.selectbox(
-        "Select vulnerability / ticket for AI assistance:",
-        range(len(guide_labels)),
-        format_func=lambda i: guide_labels[i],
-        key="ai_guide_finding_selector",
-    )
-    guide_row = filtered.iloc[guide_idx]
-
-    finding_id = str(guide_row["finding_id"]) if "finding_id" in guide_row else "default"
-    rem_key = f"remediation_res_{finding_id}"
-
-    if rem_key not in st.session_state:
-        st.caption("**Status:** Ready")
-
-    col_rem_btn, _ = st.columns([2, 3])
-    with col_rem_btn:
+        st.json(evidence)
+    with tab_fix:
+        rem_key = f"remediation_res_{finding_id}"
         if st.button("🤖 How Do I Resolve This?", key=f"btn_resolve_{finding_id}"):
             with st.spinner("Analyzing vulnerability context and generating AI remediation guide..."):
-                res = generate_remediation_guidance(guide_row)
+                res = generate_remediation_guidance(row)
                 st.session_state[rem_key] = res
                 st.rerun()
 
-    if rem_key in st.session_state:
-        res = st.session_state[rem_key]
-        if not res.get("success", False):
-            if res.get("error_type") == "missing_api_key":
-                st.warning("AI remediation guidance is unavailable because GEMINI_API_KEY is not configured.")
-            else:
-                st.error(res.get("message", "An error occurred while generating guidance."))
-        else:
-            st.markdown("#### 🤖 AI Guide")
-            st.markdown(res["markdown"])
-
-            col_copy, col_gh = st.columns(2)
-            with col_copy:
-                st.download_button(
-                    label="📋 Copy Guide",
-                    data=res["markdown"],
-                    file_name=f"remediation_{finding_id[:8]}.md",
-                    mime="text/markdown",
-                    key=f"dl_rem_{finding_id}",
-                )
-            with col_gh:
-                issue_number_val = clean(guide_row["github_issue_number"])
-                if issue_number_val:
-                    if st.button("🐙 Add Remediation Guide to GitHub Issue", key=f"btn_gh_rem_{finding_id}"):
-                        if not github_configured():
-                            st.warning("Set GITHUB_TOKEN and GITHUB_REPO in .env to add comments to GitHub issues.")
-                        else:
-                            try:
-                                comment_url = add_remediation_comment(int(issue_number_val), res["markdown"])
-                                st.success(f"Added remediation guide to GitHub Issue #{int(issue_number_val)}: {comment_url}")
-                            except Exception as e:
-                                st.error(f"Failed to post comment to GitHub: {str(e)}")
+        if rem_key in st.session_state:
+            res = st.session_state[rem_key]
+            if not res.get("success", False):
+                if res.get("error_type") == "missing_api_key":
+                    st.warning("AI remediation guidance is unavailable because GEMINI_API_KEY is not configured.")
                 else:
-                    st.caption("_No ticket yet for this finding — cannot post comment._")
+                    st.error(res.get("message", "An error occurred while generating guidance."))
+            else:
+                st.markdown(res["markdown"])
+
+                col_copy, col_gh = st.columns(2)
+                with col_copy:
+                    st.download_button(
+                        label="📋 Copy Guide",
+                        data=res["markdown"],
+                        file_name=f"remediation_{finding_id[:8]}.md",
+                        mime="text/markdown",
+                        key=f"dl_rem_{finding_id}",
+                    )
+                with col_gh:
+                    if issue_number:
+                        if st.button("🐙 Add Remediation Guide to GitHub Issue", key=f"btn_gh_rem_{finding_id}"):
+                            if not github_configured():
+                                st.warning("Set GITHUB_TOKEN and GITHUB_REPO in .env to add comments to GitHub issues.")
+                            else:
+                                try:
+                                    comment_url = add_remediation_comment(int(issue_number), res["markdown"])
+                                    st.success(f"Added remediation guide to GitHub Issue #{int(issue_number)}: {comment_url}")
+                                except Exception as e:
+                                    st.error(f"Failed to post comment to GitHub: {str(e)}")
+                    else:
+                        st.caption("_No ticket yet for this finding — cannot post comment._")
+
+    # --- Assign the ticket, right from here — the one write action this
+    # dashboard performs; everything else on the page stays read-only. ---
+    if issue_number:
+        issue_number = int(issue_number)
+        st.markdown("**Assign ticket**")
+        if not github_configured():
+            st.caption("_Set GITHUB_TOKEN/GITHUB_REPO in .env to enable assignment._")
+        else:
+            from github.GithubException import GithubException
+
+            try:
+                current = get_issue_assignees(issue_number)
+            except GithubException as e:
+                current = []
+                st.caption(f"Couldn't fetch current assignees ({e.status}).")
+            st.caption(f"Currently assigned: {', '.join(current) if current else '_none_'}")
+
+            new_names = st.text_input(
+                "GitHub username(s), comma-separated", key=f"assign_input_{issue_number}",
+                placeholder="e.g. alice, bob",
+            )
+            col_assign, col_unassign = st.columns(2)
+            with col_assign:
+                if st.button("Assign", key=f"assign_btn_{issue_number}"):
+                    usernames = [u.strip() for u in new_names.split(",") if u.strip()]
+                    if not usernames:
+                        st.warning("Enter at least one GitHub username first.")
+                    else:
+                        try:
+                            assign_issue(issue_number, usernames)
+                            st.success(f"Issue #{issue_number} assigned to: {', '.join(usernames)}")
+                            st.rerun()
+                        except GithubException as e:
+                            st.error(f"GitHub API error ({e.status}): usually means that "
+                                     f"username isn't a collaborator on this repo yet.")
+            with col_unassign:
+                if st.button("Unassign all", key=f"unassign_btn_{issue_number}"):
+                    try:
+                        assign_issue(issue_number, [])
+                        st.success(f"Issue #{issue_number} unassigned.")
+                        st.rerun()
+                    except GithubException as e:
+                        st.error(f"GitHub API error ({e.status}).")
+    else:
+        st.caption("_No ticket yet for this finding — nothing to assign._")
 else:
     st.info("No findings match the current filters.")
 
