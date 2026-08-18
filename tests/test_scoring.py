@@ -1,6 +1,6 @@
 from common.config import load_yaml
 from ingest.schema import Finding
-from score.formula import score_finding
+from score.formula import get_asset_criticality, score_finding
 from score.sla import get_github_assignee, get_owner_team, sla_for_score
 
 CFG = load_yaml("scoring.yaml")
@@ -89,3 +89,30 @@ def test_get_github_assignee_is_none_when_unset(monkeypatch):
     monkeypatch.setattr(sla_mod, "assets_config", lambda: _ASSETS_FIXTURE)
     assert get_github_assignee("no-assignee-host") is None
     assert get_github_assignee("never-configured-host") is None
+
+
+_CRITICALITY_ASSETS_FIXTURE = {
+    "assets": {
+        "known-host": {"criticality": "high", "owner": "@appsec-lead", "team": "AppSec"},
+        "incomplete-host": {"owner": "@netsec-lead", "team": "NetSec"},
+    },
+    "default": {"criticality": "medium", "owner": "@triage", "team": "Unassigned"},
+}
+
+
+def test_get_asset_criticality_returns_configured_value_for_known_host(monkeypatch):
+    import score.formula as formula_mod
+    monkeypatch.setattr(formula_mod, "assets_config", lambda: _CRITICALITY_ASSETS_FIXTURE)
+    assert get_asset_criticality("known-host") == "high"
+
+
+def test_get_asset_criticality_falls_back_to_default_for_unknown_host(monkeypatch):
+    import score.formula as formula_mod
+    monkeypatch.setattr(formula_mod, "assets_config", lambda: _CRITICALITY_ASSETS_FIXTURE)
+    assert get_asset_criticality("never-configured-host") == "medium"
+
+
+def test_get_asset_criticality_returns_unknown_when_host_entry_lacks_criticality(monkeypatch):
+    import score.formula as formula_mod
+    monkeypatch.setattr(formula_mod, "assets_config", lambda: _CRITICALITY_ASSETS_FIXTURE)
+    assert get_asset_criticality("incomplete-host") == "unknown"
