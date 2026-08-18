@@ -51,34 +51,66 @@ PLOTLY_DARK = dict(template="plotly_dark", plot_bgcolor=SURFACE, paper_bgcolor=S
 
 st.markdown(f"""
 <style>
-/* Card styling for the funnel stat tiles (st.metric) — the dataviz skill's
-   stat-tile contract (label/value/delta) doesn't get a container by default
-   in Streamlit, so this gives each one a surface + hairline border instead of
-   floating loose on the page plane. */
-div[data-testid="stMetric"] {{
+/* Custom funnel stat tiles (replaces st.metric — see stat_tile() below).
+   Elevated card with a colored left accent bar, plus a hover lift so the
+   page doesn't read as a flat stack of bordered boxes. */
+.tx-tile {{
     background-color: {SURFACE};
     border: 1px solid {BORDER};
+    border-left: 4px solid var(--tx-accent, {BORDER});
     border-radius: 10px;
     padding: 16px 18px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
 }}
-div[data-testid="stMetricLabel"] {{ color: {INK_MUTED}; }}
-div[data-testid="stMetricValue"] {{ color: {INK_PRIMARY}; }}
+.tx-tile:hover {{
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(0,0,0,0.5);
+}}
+.tx-tile-label {{
+    color: {INK_MUTED}; font-size: 0.8rem; text-transform: uppercase;
+    letter-spacing: 0.4px; margin-bottom: 6px;
+}}
+.tx-tile-value {{ color: {INK_PRIMARY}; font-size: 1.9rem; font-weight: 700; line-height: 1.1; }}
+.tx-tile-delta {{ color: {INK_SECONDARY}; font-size: 0.85rem; margin-top: 4px; }}
 
-/* Section headers get a bit more air and a hairline rule beneath them,
-   instead of running straight into the next block. */
+/* Section headers get more air and a hairline rule beneath them, instead of
+   running straight into the next block. */
 h3 {{
     border-bottom: 1px solid {BORDER};
     padding-bottom: 8px;
-    margin-top: 28px !important;
+    margin-top: 36px !important;
+    letter-spacing: 0.2px;
 }}
 
-/* Dataframe / table container: same surface + border as everything else. */
+/* Dataframe / table container and expanders: same elevated-card treatment
+   as the stat tiles, so the whole page reads as one consistent card system
+   instead of flat borders everywhere. */
 div[data-testid="stDataFrame"] {{
     border: 1px solid {BORDER};
     border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+}}
+div[data-testid="stExpander"] {{
+    border: 1px solid {BORDER} !important;
+    border-radius: 8px !important;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.25);
 }}
 </style>
 """, unsafe_allow_html=True)
+
+
+def stat_tile(container, label: str, value, delta: str, accent: str) -> None:
+    """Custom replacement for st.metric — gives full control over styling
+    (colored left accent, elevation) without depending on Streamlit's
+    internal testids, which have changed names across versions before."""
+    container.markdown(f"""
+    <div class="tx-tile" style="--tx-accent: {accent}">
+        <div class="tx-tile-label">{label}</div>
+        <div class="tx-tile-value">{value}</div>
+        <div class="tx-tile-delta">{delta}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
 st.set_page_config(page_title="Threat-X Risk Dashboard", layout="wide")
 
@@ -162,13 +194,16 @@ df, metrics = load_scan(scan_id)
 # --- Before/after funnel ---------------------------------------------------
 st.subheader("Noise reduction: before vs. after")
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Raw findings", metrics.get("raw_count", "—"))
-c2.metric("Duplicates removed", metrics.get("duplicate_count", "—"),
-          f"-{metrics.get('dedup_pct', 0)}%")
-c3.metric("Suppressed (FP / accepted risk)", metrics.get("suppressed_count", "—"),
-          f"-{metrics.get('fp_removed_pct', 0)}%")
-c4.metric("Final ranked findings", metrics.get("final_count", "—"),
-          f"-{metrics.get('noise_reduction_pct', 0)}% total noise")
+# Accent color tells a left-to-right story: neutral raw count -> amber
+# (duplicates filtered) -> orange (FPs filtered) -> green (clean output).
+# Reuses the existing SLA palette rather than introducing new colors.
+stat_tile(c1, "Raw findings", metrics.get("raw_count", "—"), "", INK_MUTED)
+stat_tile(c2, "Duplicates removed", metrics.get("duplicate_count", "—"),
+          f"-{metrics.get('dedup_pct', 0)}%", SLA_COLORS["medium"])
+stat_tile(c3, "Suppressed (FP / accepted risk)", metrics.get("suppressed_count", "—"),
+          f"-{metrics.get('fp_removed_pct', 0)}%", SLA_COLORS["high"])
+stat_tile(c4, "Final ranked findings", metrics.get("final_count", "—"),
+          f"-{metrics.get('noise_reduction_pct', 0)}% total noise", SLA_COLORS["low"])
 
 # --- Suppressed findings (false positives / accepted risk) -----------------
 # These never leave the parquet — dedup/suppress.py only flags them
