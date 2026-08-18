@@ -94,6 +94,7 @@ class FindingResponse(BaseModel):
     github_issue_url: Optional[str] = None
     ticket_created_at: Optional[str] = None
     ai_summary: Optional[str] = None
+    advisory_url: Optional[str] = None
 
 
 class FindingsListResponse(BaseModel):

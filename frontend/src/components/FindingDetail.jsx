@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles, ShieldAlert, Cpu, CheckCircle } from 'lucide-react';
+import { Sparkles, ShieldAlert, Cpu, CheckCircle, ExternalLink } from 'lucide-react';
 import ScoreBreakdown from './ScoreBreakdown';
 import EvidenceViewer from './EvidenceViewer';
 import TicketAssignment from './TicketAssignment';
@@ -133,6 +133,20 @@ export default function FindingDetail({
             </span>
           )}
         </p>
+        {finding.advisory_url && (
+          <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem' }}>
+            <span style={{ color: 'var(--text-muted)', fontWeight: '600' }}>Official Advisory:</span>
+            <a
+              href={finding.advisory_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: 'var(--accent-cyan)', display: 'inline-flex', alignItems: 'center', gap: '4px', textDecoration: 'underline', wordBreak: 'break-all' }}
+            >
+              {finding.advisory_url}
+              <ExternalLink size={12} />
+            </a>
+          </div>
+        )}
       </div>
 
       {/* Score Breakdown & Actions Grid */}

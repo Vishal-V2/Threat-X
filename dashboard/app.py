@@ -246,6 +246,9 @@ if len(filtered):
     with right:
         ai_summary = clean(row["ai_summary"])
         st.markdown(f"**Why this matters:** {ai_summary or '_(AI summary not generated — set GEMINI_API_KEY)_'}")
+        advisory_url = clean(row.get("advisory_url") if "advisory_url" in row else None)
+        if advisory_url:
+            st.markdown(f"**Advisory:** [{advisory_url}]({advisory_url})")
         st.markdown(f"- **SLA:** {row['sla_tier']} — due {row['sla_due_date']}, owner {row['owner']} ({row['team']})")
         st.markdown(f"- **Found by:** {row['contributing_label']}")
         issue_url = clean(row["github_issue_url"])

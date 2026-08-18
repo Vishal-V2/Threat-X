@@ -29,9 +29,24 @@ def _safe_get_cvss(cve: str) -> dict | None:
         return None
 
 
+def _get_standard_remediation_url(f: Finding) -> str:
+    """Provides authoritative OWASP / MDN security guidance for web / configuration findings."""
+    t = (f.title or "").lower()
+    if "content-security-policy" in t or "csp" in t:
+        return "https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html"
+    if "x-content-type-options" in t or "header" in t:
+        return "https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html"
+    if ".git" in t or "directory" in t:
+        return "https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/02-Configuration_and_Deployment_Management_Testing/05-Enumerate_Infrastructure_and_Application_Admin_Interfaces"
+    return "https://owasp.org/www-project-top-ten/"
+
+
 def enrich_findings(findings: list[Finding]) -> list[Finding]:
     targets = [f for f in findings if not f.is_duplicate and not f.suppressed]
-    all_cves = sorted({c for f in targets for c in f.cve_ids})
+    all_cves: list[str] = []
+    for f in targets:
+        all_cves.extend(f.cve_ids)
+    all_cves = sorted(set(all_cves))
 
     kev_index = kev.get_kev_index()
     epss_scores = epss.get_epss_scores(all_cves) if all_cves else {}
@@ -45,9 +60,11 @@ def enrich_findings(findings: list[Finding]) -> list[Finding]:
                 f.cvss_v3_score = best["score"]
                 f.cvss_v3_vector = best["vector"]
                 f.cvss_source = "nvd"
+                f.advisory_url = best.get("advisory_url") or f"https://nvd.nist.gov/vuln/detail/{f.cve_ids[0]}"
             else:
                 f.cvss_v3_score = _severity_fallback_cvss(f, fallback_table)
                 f.cvss_source = "scanner_severity_fallback"
+                f.advisory_url = f"https://nvd.nist.gov/vuln/detail/{f.cve_ids[0]}"
 
             epss_hits = [epss_scores[c] for c in f.cve_ids if c in epss_scores]
             if epss_hits:
@@ -69,6 +86,7 @@ def enrich_findings(findings: list[Finding]) -> list[Finding]:
         else:
             f.cvss_v3_score = _severity_fallback_cvss(f, fallback_table)
             f.cvss_source = "scanner_severity_fallback"
+            f.advisory_url = _get_standard_remediation_url(f)
 
         f.enrichment_fetched_at = datetime.now(timezone.utc)
 

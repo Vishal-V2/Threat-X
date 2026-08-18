@@ -21,6 +21,7 @@ def issue_body(f: Finding) -> str:
 {rows}
 
 **Why this matters:** {f.ai_summary or '_(AI summary not generated — GEMINI_API_KEY not set)_'}
+**Advisory:** {f.advisory_url or 'n/a'}
 
 - **Host:** {f.host}{f' (port {f.port})' if f.port else ''}
 - **CVE(s):** {cve_list}

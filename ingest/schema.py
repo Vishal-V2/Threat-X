@@ -69,6 +69,7 @@ class Finding(BaseModel):
     cvss_v3_score: Optional[float] = None
     cvss_v3_vector: Optional[str] = None
     cvss_source: Optional[CvssSource] = None
+    advisory_url: Optional[str] = None
     epss_score: Optional[float] = None
     epss_percentile: Optional[float] = None
     in_kev: bool = False

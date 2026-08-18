@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { X, FileText, Activity, Server, UserCheck, Shield } from 'lucide-react';
+import { X, FileText, Activity, Server, UserCheck, Shield, ExternalLink } from 'lucide-react';
 import { SlaBadge, KevBadge, ScoreBadge } from '../common/Badge';
 import ScoreBreakdown from './ScoreBreakdown';
 import FindingEvidence from './FindingEvidence';
@@ -128,13 +128,27 @@ export default function FindingDrawer({
           <div className="analyst-summary-box">
             <div className="analyst-summary-title">
               <FileText size={14} />
-              <span>Analyst Summary</span>
+              <span>Analyst Summary & Advisories</span>
             </div>
             <div className="analyst-summary-content">
               {finding.ai_summary || (
                 <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>
                   No automated summary generated for this finding.
                 </span>
+              )}
+              {finding.advisory_url && (
+                <div style={{ marginTop: '8px', paddingTop: '6px', borderTop: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px' }}>
+                  <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Advisory / Fix:</span>
+                  <a
+                    href={finding.advisory_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: 'var(--primary)', display: 'inline-flex', alignItems: 'center', gap: '4px', textDecoration: 'underline', wordBreak: 'break-all' }}
+                  >
+                    {finding.advisory_url}
+                    <ExternalLink size={11} />
+                  </a>
+                </div>
               )}
             </div>
           </div>

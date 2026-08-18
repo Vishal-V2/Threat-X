@@ -135,6 +135,7 @@ def load_findings_for_scan(scan_id: str) -> list[dict]:
             "github_issue_url": _clean_val(r.get("github_issue_url")),
             "ticket_created_at": _clean_val(r.get("ticket_created_at")),
             "ai_summary": _clean_val(r.get("ai_summary")),
+            "advisory_url": _clean_val(r.get("advisory_url")),
         }
         item["contributing_label"] = _get_contributing_label(item)
         cleaned_findings.append(item)
