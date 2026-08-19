@@ -21,6 +21,7 @@ _METHOD_PRIORITY = ["exact_cve_host", "exact_title_host_port", "fuzzy", "llm_sem
 class UnionFind:
     def __init__(self, n: int):
         self.parent = list(range(n))
+        self.size = [1] * n
 
     def find(self, x: int) -> int:
         while self.parent[x] != x:
@@ -30,8 +31,15 @@ class UnionFind:
 
     def union(self, a: int, b: int) -> None:
         ra, rb = self.find(a), self.find(b)
-        if ra != rb:
-            self.parent[rb] = ra
+        if ra == rb:
+            return
+        # Union by size: attach the smaller tree under the larger one's root so
+        # repeated merges (e.g. one host with many scanners hitting it) can't
+        # degrade find() into an O(n) walk before path compression kicks in.
+        if self.size[ra] < self.size[rb]:
+            ra, rb = rb, ra
+        self.parent[rb] = ra
+        self.size[ra] += self.size[rb]
 
 
 def normalize_title(title: str) -> str:
