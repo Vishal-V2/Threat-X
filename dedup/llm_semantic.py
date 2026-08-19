@@ -8,10 +8,11 @@ from __future__ import annotations
 
 from ai.client import is_available
 from ai.dedup_prompt import judge_duplicate_pairs
+from common.config import scoring_config
 from dedup.deterministic import UnionFind
 from ingest.schema import Finding
 
-_BATCH_SIZE = 10
+_DEFAULT_BATCH_SIZE = 10
 
 
 def resolve_candidates(findings: list[Finding], candidates: list[tuple[int, int, float]],
@@ -19,6 +20,8 @@ def resolve_candidates(findings: list[Finding], candidates: list[tuple[int, int,
                         log: list[dict]) -> None:
     if not candidates:
         return
+
+    batch_size = scoring_config()["dedup"].get("llm_batch_size", _DEFAULT_BATCH_SIZE)
 
     if not is_available():
         msg = (
@@ -42,8 +45,8 @@ def resolve_candidates(findings: list[Finding], candidates: list[tuple[int, int,
             "title_b": fj.title, "desc_b": fj.description,
         })
 
-    for start in range(0, len(batch_input), _BATCH_SIZE):
-        chunk = batch_input[start:start + _BATCH_SIZE]
+    for start in range(0, len(batch_input), batch_size):
+        chunk = batch_input[start:start + batch_size]
         try:
             verdicts = judge_duplicate_pairs(chunk)
         except Exception as e:  # e.g. rate limit/quota exhaustion, transient API errors

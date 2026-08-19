@@ -2,6 +2,7 @@
 dedup:
   fuzzy_auto_merge_threshold: 90   # rapidfuzz token_sort_ratio >= this -> auto-merge
   fuzzy_candidate_threshold: 65    # >= this and < auto_merge -> sent to the LLM semantic pass
+  llm_batch_size: 10               # candidate pairs per Gemini call in the LLM semantic pass
 
 # Deterministic scoring weights (score/formula.py). Must sum to <= 1.0 across the three
 # weighted components; kev_boost/exploitdb_boost are additive on top, not part of the
