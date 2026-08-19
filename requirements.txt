@@ -10,5 +10,6 @@ pyyaml>=6.0
 tenacity>=8.2
 plotly>=5.22
 pyarrow>=16.1
+streamlit-shadcn-ui>=1.1
 click>=8.1
 pytest>=8.2

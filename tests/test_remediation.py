@@ -123,9 +123,9 @@ def test_successful_ai_response_handling(sample_finding):
         res = generate_remediation_guidance(sample_finding)
         assert res["success"] is True
         assert res["guidance"]["vulnerability_summary"].startswith("Log4j RCE")
-        assert "### 1. Vulnerability Summary" in res["markdown"]
-        assert "### 5. Step-by-Step Resolution" in res["markdown"]
-        assert "### 8. References" in res["markdown"]
+        assert "**1. Vulnerability Summary**" in res["markdown"]
+        assert "**5. Step-by-Step Resolution**" in res["markdown"]
+        assert "**8. References**" in res["markdown"]
 
 
 def test_remediation_prompt_generation(sample_finding):
@@ -195,13 +195,13 @@ def test_dashboard_integration_format():
     }
     md = format_guidance_markdown(dummy_dict)
     for section_header in [
-        "### 1. Vulnerability Summary",
-        "### 2. Why It Matters",
-        "### 3. Root Cause",
-        "### 4. Recommended Fix",
-        "### 5. Step-by-Step Resolution",
-        "### 6. Commands / Configuration",
-        "### 7. Verification",
-        "### 8. References",
+        "**1. Vulnerability Summary**",
+        "**2. Why It Matters**",
+        "**3. Root Cause**",
+        "**4. Recommended Fix**",
+        "**5. Step-by-Step Resolution**",
+        "**6. Commands / Configuration**",
+        "**7. Verification**",
+        "**8. References**",
     ]:
         assert section_header in md

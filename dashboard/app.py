@@ -1,12 +1,12 @@
 """Threat-X risk dashboard (Streamlit). Reads data/processed/<scan_id>/final_scored.parquet
 and data/runs/<scan_id>/metrics.json for the latest pipeline run.
 
-Palette: committed dark theme end to end (page chrome via .streamlit/config.toml,
-charts here) — fixed categorical hues assigned by scanner identity (never by
-rank/filter state), and the fixed status palette for SLA tiers — all from the
-dataviz skill's validated default palette (references/palette.md, dark-mode
-column), so hue always maps to the same entity across every chart on the page,
-and nothing reads as a mismatched light card floating in a dark app.
+Palette: light and dark are both selected (dataviz skill's validated default
+palette, references/palette.md — not eyeballed), auto-detected from the
+viewer's own Streamlit theme with a sidebar override — fixed categorical hues
+assigned by scanner identity (never by rank/filter state), and the fixed
+status palette for SLA tiers (mode-invariant), so hue always maps to the same
+entity across every chart on the page in either mode.
 """
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit_shadcn_ui as ui
 from dotenv import load_dotenv
 
 from ai.remediation import generate_remediation_guidance
@@ -31,48 +32,76 @@ from ticket.github_issues import is_configured as github_configured
 
 load_dotenv()
 
-# --- Validated categorical + status palette (dataviz skill, dark-mode steps —
-# matches .streamlit/config.toml's dark theme) ---
-SCANNER_COLORS = {"nuclei": "#3987e5", "nmap": "#d95926", "zap": "#199e70"}  # slots 1-3
+# --- Light/dark palette (both columns from the dataviz skill's validated
+# reference palette, references/palette.md — not eyeballed). The status
+# palette (SLA tiers) is fixed there ("never themed") — same hex both modes,
+# so it lives outside the per-mode dict below. ---
+_PALETTES = {
+    "dark": dict(
+        scanner={"nuclei": "#3987e5", "nmap": "#d95926", "zap": "#199e70"},
+        surface="#1a1a19", page_plane="#0d0d0d", ink_primary="#ffffff",
+        ink_secondary="#c3c2b7", ink_muted="#898781", grid="#2c2c2a",
+        border="rgba(255,255,255,0.10)", plotly_template="plotly_dark",
+    ),
+    "light": dict(
+        scanner={"nuclei": "#2a78d6", "nmap": "#eb6834", "zap": "#1baf7a"},
+        surface="#fcfcfb", page_plane="#f9f9f7", ink_primary="#0b0b0b",
+        ink_secondary="#52514e", ink_muted="#898781", grid="#e1e0d9",
+        border="rgba(11,11,11,0.10)", plotly_template="plotly_white",
+    ),
+}
 SLA_COLORS = {"critical": "#d03b3b", "high": "#ec835a", "medium": "#fab219", "low": "#0ca30c"}
-SURFACE = "#1a1a19"       # chart/card surface
-PAGE_PLANE = "#0d0d0d"
-INK_PRIMARY = "#ffffff"
-INK_SECONDARY = "#c3c2b7"
-INK_MUTED = "#898781"
-GRID = "#2c2c2a"
-BORDER = "rgba(255,255,255,0.10)"
 
-# Plotly's dark template gets us close, but we still set surface/grid/font
+# Auto-detects the browser/OS theme Streamlit's own chrome is already using
+# (st.context.theme reflects the viewer's native Settings-menu choice), with
+# an explicit override here for previewing the other mode on demand. This
+# only re-themes what we draw ourselves (charts, card borders); Streamlit's
+# native chrome and the shadcn-ui components (metric cards, badges, tabs)
+# already follow the browser's real theme on their own.
+_detected_mode = getattr(st.context.theme, "type", None) or "dark"
+_theme_choice = st.sidebar.selectbox(
+    "🌓 Theme", ["Auto (match browser)", "Dark", "Light"], index=0, key="theme_choice",
+)
+_mode = _detected_mode if _theme_choice == "Auto (match browser)" else _theme_choice.lower()
+
+_palette = _PALETTES[_mode]
+SCANNER_COLORS = _palette["scanner"]
+SURFACE = _palette["surface"]         # chart/card surface
+PAGE_PLANE = _palette["page_plane"]
+INK_PRIMARY = _palette["ink_primary"]
+INK_SECONDARY = _palette["ink_secondary"]
+INK_MUTED = _palette["ink_muted"]
+GRID = _palette["grid"]
+BORDER = _palette["border"]
+
+# Plotly's built-in template gets us close, but we still set surface/grid/font
 # colors explicitly per-figure below so every chart matches these exact tokens
-# rather than Plotly's own built-in dark palette (which doesn't match ours).
-PLOTLY_DARK = dict(template="plotly_dark", plot_bgcolor=SURFACE, paper_bgcolor=SURFACE,
-                    font_color=INK_SECONDARY)
+# rather than Plotly's own built-in palette (which doesn't match ours).
+PLOTLY_THEME = dict(template=_palette["plotly_template"], plot_bgcolor=SURFACE,
+                     paper_bgcolor=SURFACE, font_color=INK_SECONDARY)
 
 st.markdown(f"""
 <style>
-/* Custom funnel stat tiles (replaces st.metric — see stat_tile() below).
-   Elevated card with a colored left accent bar, plus a hover lift so the
-   page doesn't read as a flat stack of bordered boxes. */
-.tx-tile {{
-    background-color: {SURFACE};
-    border: 1px solid {BORDER};
-    border-left: 4px solid var(--tx-accent, {BORDER});
-    border-radius: 10px;
-    padding: 16px 18px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.35);
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
+/* Page chrome itself — background/text is what actually reads as "the mode"
+   at a glance, unlike the chart/border tweaks below which are subtle or
+   hidden inside collapsed expanders. These testids/classNames (stApp,
+   stAppViewContainer, stMain, stHeader, stSidebar, stMainBlockContainer) are
+   confirmed present in this Streamlit build's own frontend bundle, not
+   guessed. This makes the sidebar toggle the actual authority on mode,
+   instead of only being visible once it happens to agree with the browser's
+   own theme. (The shadcn-ui iframe components and the dataframe's internal
+   grid rendering are outside this reach — they follow the browser's real
+   theme on their own, see the module docstring.) */
+div[data-testid="stApp"], div[data-testid="stAppViewContainer"],
+div[data-testid="stMain"], div[data-testid="stHeader"] {{
+    background-color: {PAGE_PLANE} !important;
 }}
-.tx-tile:hover {{
-    transform: translateY(-2px);
-    box-shadow: 0 6px 18px rgba(0,0,0,0.5);
+div[data-testid="stSidebar"] {{
+    background-color: {SURFACE} !important;
 }}
-.tx-tile-label {{
-    color: {INK_MUTED}; font-size: 0.8rem; text-transform: uppercase;
-    letter-spacing: 0.4px; margin-bottom: 6px;
+div[data-testid="stMainBlockContainer"], div[data-testid="stSidebar"] {{
+    color: {INK_PRIMARY};
 }}
-.tx-tile-value {{ color: {INK_PRIMARY}; font-size: 1.9rem; font-weight: 700; line-height: 1.1; }}
-.tx-tile-delta {{ color: {INK_SECONDARY}; font-size: 0.85rem; margin-top: 4px; }}
 
 /* Section headers get more air and a hairline rule beneath them, instead of
    running straight into the next block. */
@@ -84,33 +113,22 @@ h3 {{
 }}
 
 /* Dataframe / table container and expanders: same elevated-card treatment
-   as the stat tiles, so the whole page reads as one consistent card system
-   instead of flat borders everywhere. */
+   as the shadcn components below, so the whole page reads as one consistent
+   card system instead of flat borders everywhere. */
 div[data-testid="stDataFrame"] {{
+    background-color: {SURFACE};
     border: 1px solid {BORDER};
     border-radius: 8px;
     box-shadow: 0 2px 10px rgba(0,0,0,0.3);
 }}
 div[data-testid="stExpander"] {{
+    background-color: {SURFACE};
     border: 1px solid {BORDER} !important;
     border-radius: 8px !important;
     box-shadow: 0 2px 10px rgba(0,0,0,0.25);
 }}
 </style>
 """, unsafe_allow_html=True)
-
-
-def stat_tile(container, label: str, value, delta: str, accent: str) -> None:
-    """Custom replacement for st.metric — gives full control over styling
-    (colored left accent, elevation) without depending on Streamlit's
-    internal testids, which have changed names across versions before."""
-    container.markdown(f"""
-    <div class="tx-tile" style="--tx-accent: {accent}">
-        <div class="tx-tile-label">{label}</div>
-        <div class="tx-tile-value">{value}</div>
-        <div class="tx-tile-delta">{delta}</div>
-    </div>
-    """, unsafe_allow_html=True)
 
 st.set_page_config(page_title="Threat-X Risk Dashboard", layout="wide")
 
@@ -139,6 +157,18 @@ def clean(val):
     return val if pd.notna(val) else None
 
 
+def _strip_json_nulls(val):
+    """Recursively replaces JSON null with the string "—" so st.json() renders
+    it as plain text instead of its special-cased, highlighted `null` badge."""
+    if val is None:
+        return "NULL"
+    if isinstance(val, dict):
+        return {k: _strip_json_nulls(v) for k, v in val.items()}
+    if isinstance(val, list):
+        return [_strip_json_nulls(v) for v in val]
+    return val
+
+
 @st.cache_data(ttl=20)
 def load_scan(scan_id: str) -> tuple[pd.DataFrame, dict]:
     df = pd.read_parquet(final_scored_path(scan_id))
@@ -154,6 +184,41 @@ def contributing_label(row) -> str:
     if not scanners:
         scanners = [row["source_scanner"]]
     return " + ".join(sorted(scanners))
+
+
+# Network/system-layer services nmap can name via -sV. Anything web-ish
+# (matched separately below via a substring check, since nmap's service
+# strings vary — "http", "http-proxy", "ssl/http", ...) is Application level;
+# everything else nmap identifies a service for is OS level.
+_OS_LEVEL_SERVICES = {
+    "ssh", "ftp", "ftps", "telnet", "smtp", "smtps", "pop3", "pop3s", "imap", "imaps",
+    "dns", "domain", "snmp", "ntp", "netbios-ssn", "netbios-ns", "microsoft-ds", "smb",
+    "msrpc", "rpcbind", "nfs", "mysql", "postgresql", "mssql", "oracle", "redis",
+    "mongodb", "distccd", "vnc", "rdp", "ms-wbt-server", "exec", "login", "shell",
+    "rlogin", "rsh", "x11", "ldap", "ldaps", "kerberos-sec",
+}
+
+
+def vuln_category(row) -> str:
+    """OS level vs. Application level, derived from the finding's own data —
+    not a persisted schema field, since it's fully derivable from service/
+    source_scanner already on every Finding (same pattern as
+    contributing_label above)."""
+    service = clean(row["service"])
+    if service:
+        service_l = str(service).lower()
+        if "http" in service_l:
+            return "Application level"
+        if service_l in _OS_LEVEL_SERVICES:
+            return "OS level"
+    # nuclei/zap in this pipeline always scan an HTTP target and never
+    # populate `service` (see ingest/nuclei_parser.py, zap_parser.py).
+    if row["source_scanner"] in ("nuclei", "zap"):
+        return "Application level"
+    # An nmap finding with no recognized service — nmap's real CVE findings
+    # here come almost entirely from the network-layer Metasploitable
+    # target (see scripts/setup_target.sh), so default to OS level.
+    return "OS level"
 
 
 def assignee_display(row) -> str:
@@ -194,16 +259,24 @@ df, metrics = load_scan(scan_id)
 # --- Before/after funnel ---------------------------------------------------
 st.subheader("Noise reduction: before vs. after")
 c1, c2, c3, c4 = st.columns(4)
-# Accent color tells a left-to-right story: neutral raw count -> amber
-# (duplicates filtered) -> orange (FPs filtered) -> green (clean output).
-# Reuses the existing SLA palette rather than introducing new colors.
-stat_tile(c1, "Raw findings", metrics.get("raw_count", "—"), "", INK_MUTED)
-stat_tile(c2, "Duplicates removed", metrics.get("duplicate_count", "—"),
-          f"-{metrics.get('dedup_pct', 0)}%", SLA_COLORS["medium"])
-stat_tile(c3, "Suppressed (FP / accepted risk)", metrics.get("suppressed_count", "—"),
-          f"-{metrics.get('fp_removed_pct', 0)}%", SLA_COLORS["high"])
-stat_tile(c4, "Final ranked findings", metrics.get("final_count", "—"),
-          f"-{metrics.get('noise_reduction_pct', 0)}% total noise", SLA_COLORS["low"])
+# Badge variant tells a left-to-right story using shadcn's own semantics
+# (no custom colors): secondary (neutral raw count) -> outline (noise being
+# filtered) -> destructive (false positives) -> default (the clean output).
+with c1:
+    ui.metric_card("Raw findings", metrics.get("raw_count", "—"), variant="dashboard")
+    ui.badge("baseline", variant="secondary")
+with c2:
+    ui.metric_card("Duplicates removed", metrics.get("duplicate_count", "—"),
+                    delta=f"-{metrics.get('dedup_pct', 0)}%", variant="dashboard")
+    ui.badge("noise", variant="outline")
+with c3:
+    ui.metric_card("Suppressed (FP / accepted risk)", metrics.get("suppressed_count", "—"),
+                    delta=f"-{metrics.get('fp_removed_pct', 0)}%", variant="dashboard")
+    ui.badge("false positive", variant="destructive")
+with c4:
+    ui.metric_card("Final ranked findings", metrics.get("final_count", "—"),
+                    delta=f"-{metrics.get('noise_reduction_pct', 0)}% total noise", variant="dashboard")
+    ui.badge("actionable", variant="default")
 
 # --- Suppressed findings (false positives / accepted risk) -----------------
 # These never leave the parquet — dedup/suppress.py only flags them
@@ -226,17 +299,30 @@ with st.expander(f"🔎 View suppressed findings ({len(suppressed_df)}) — fals
                 "Why suppressed": st.column_config.TextColumn(width="large"),
             },
         )
+
+        sup_labels = [f"{r.title[:70]} — {r.host}" for r in suppressed_df.itertuples()]
+        sup_idx = st.selectbox(
+            "View evidence for a suppressed finding", range(len(sup_labels)),
+            format_func=lambda i: sup_labels[i], key="suppressed_evidence_selector",
+        )
+        sup_row = suppressed_df.iloc[sup_idx]
+        st.caption(f"**Why suppressed:** {sup_row['suppression_reason']}")
+        sup_evidence = sup_row["raw_evidence"]
+        sup_evidence = json.loads(sup_evidence) if isinstance(sup_evidence, str) else sup_evidence
+        st.json(_strip_json_nulls(sup_evidence))
     else:
         st.caption("No findings were suppressed in this scan.")
 
 # --- Filters -----------------------------------------------------------
 actionable = df[(~df["is_duplicate"]) & (~df["suppressed"])].copy()
 actionable["contributing_label"] = actionable.apply(contributing_label, axis=1)
+actionable["vuln_category"] = actionable.apply(vuln_category, axis=1)
 
 st.sidebar.header("Filters")
 scanner_filter = st.sidebar.multiselect("Scanner", sorted(SCANNER_COLORS), default=[])
 tier_filter = st.sidebar.multiselect("SLA tier", ["critical", "high", "medium", "low"], default=[])
 host_filter = st.sidebar.multiselect("Host", sorted(actionable["host"].unique()), default=[])
+category_filter = st.sidebar.multiselect("Category", ["OS level", "Application level"], default=[])
 kev_only = st.sidebar.checkbox("KEV only (confirmed active exploitation)")
 min_score = st.sidebar.slider("Minimum risk score", 0, 100, 0)
 
@@ -248,6 +334,8 @@ if tier_filter:
     filtered = filtered[filtered["sla_tier"].isin(tier_filter)]
 if host_filter:
     filtered = filtered[filtered["host"].isin(host_filter)]
+if category_filter:
+    filtered = filtered[filtered["vuln_category"].isin(category_filter)]
 if kev_only:
     filtered = filtered[filtered["in_kev"]]
 filtered = filtered[filtered["risk_score"].fillna(0) >= min_score]
@@ -258,12 +346,13 @@ st.subheader(f"Ranked action list ({len(filtered)} of {len(actionable)} findings
 filtered = filtered.copy()
 filtered["assignee_display"] = filtered.apply(assignee_display, axis=1)
 display_cols = ["risk_score", "sla_tier", "title", "host", "cve_ids", "in_kev",
-                 "epss_score", "cvss_v3_score", "contributing_label", "owner",
-                 "sla_due_date", "github_issue_url", "assignee_display"]
+                 "epss_score", "cvss_v3_score", "contributing_label", "vuln_category",
+                 "owner", "sla_due_date", "github_issue_url", "assignee_display"]
 display_df = filtered[display_cols].rename(columns={
     "risk_score": "Score", "sla_tier": "SLA", "title": "Finding", "host": "Host",
     "cve_ids": "CVE(s)", "in_kev": "KEV", "epss_score": "EPSS",
-    "cvss_v3_score": "CVSS", "contributing_label": "Found by", "owner": "Owner",
+    "cvss_v3_score": "CVSS", "contributing_label": "Found by",
+    "vuln_category": "Category", "owner": "Owner",
     "sla_due_date": "Due", "github_issue_url": "Ticket",
     "assignee_display": "Assigned to",
 })
@@ -318,17 +407,21 @@ if len(filtered):
             marker_color=SCANNER_COLORS["nuclei"],
         ))
         fig.update_layout(height=280, margin=dict(l=10, r=10, t=10, b=10),
-                           xaxis_gridcolor=GRID, **PLOTLY_DARK)
+                           xaxis_gridcolor=GRID, **PLOTLY_THEME)
         st.plotly_chart(fig, use_container_width=True)
 
-    tab_evidence, tab_fix = st.tabs(["🔍 Evidence", "🔧 Fix"])
-    with tab_evidence:
+    selected_tab = ui.tabs(["Evidence", "Fix"], key=f"detail_tabs_{finding_id}")
+    if selected_tab == "Evidence":
         evidence = row["raw_evidence"]
         evidence = json.loads(evidence) if isinstance(evidence, str) else evidence
-        st.json(evidence)
-    with tab_fix:
+        # st.json() gives `null` values a highlighted badge, distinct from
+        # plain strings. There's nothing meaningful to see in a null evidence
+        # field anyway, so swap it for a plain "—" string here — it then
+        # renders like any other text value, no special-cased badge.
+        st.json(_strip_json_nulls(evidence))
+    elif selected_tab == "Fix":
         rem_key = f"remediation_res_{finding_id}"
-        if st.button("🤖 How Do I Resolve This?", key=f"btn_resolve_{finding_id}"):
+        if st.button("How Do I Resolve This?", key=f"btn_resolve_{finding_id}"):
             with st.spinner("Analyzing vulnerability context and generating AI remediation guide..."):
                 res = generate_remediation_guidance(row)
                 st.session_state[rem_key] = res
@@ -342,30 +435,35 @@ if len(filtered):
                 else:
                     st.error(res.get("message", "An error occurred while generating guidance."))
             else:
-                st.markdown(res["markdown"])
+                # A plain st.container(border=True) card — native Streamlit,
+                # not canvas/iframe, so unlike the ranked table and the
+                # shadcn funnel cards, this one does correctly follow the
+                # light/dark toggle.
+                with st.container(border=True):
+                    st.markdown(res["markdown"])
 
-                col_copy, col_gh = st.columns(2)
-                with col_copy:
-                    st.download_button(
-                        label="📋 Copy Guide",
-                        data=res["markdown"],
-                        file_name=f"remediation_{finding_id[:8]}.md",
-                        mime="text/markdown",
-                        key=f"dl_rem_{finding_id}",
-                    )
-                with col_gh:
-                    if issue_number:
-                        if st.button("🐙 Add Remediation Guide to GitHub Issue", key=f"btn_gh_rem_{finding_id}"):
-                            if not github_configured():
-                                st.warning("Set GITHUB_TOKEN and GITHUB_REPO in .env to add comments to GitHub issues.")
-                            else:
-                                try:
-                                    comment_url = add_remediation_comment(int(issue_number), res["markdown"])
-                                    st.success(f"Added remediation guide to GitHub Issue #{int(issue_number)}: {comment_url}")
-                                except Exception as e:
-                                    st.error(f"Failed to post comment to GitHub: {str(e)}")
-                    else:
-                        st.caption("_No ticket yet for this finding — cannot post comment._")
+                    col_copy, col_gh = st.columns(2)
+                    with col_copy:
+                        st.download_button(
+                            label="📋 Copy Guide",
+                            data=res["markdown"],
+                            file_name=f"remediation_{finding_id[:8]}.md",
+                            mime="text/markdown",
+                            key=f"dl_rem_{finding_id}",
+                        )
+                    with col_gh:
+                        if issue_number:
+                            if st.button("🐙 Add Remediation Guide to GitHub Issue", key=f"btn_gh_rem_{finding_id}"):
+                                if not github_configured():
+                                    st.warning("Set GITHUB_TOKEN and GITHUB_REPO in .env to add comments to GitHub issues.")
+                                else:
+                                    try:
+                                        comment_url = add_remediation_comment(int(issue_number), res["markdown"])
+                                        st.success(f"Added remediation guide to GitHub Issue #{int(issue_number)}: {comment_url}")
+                                    except Exception as e:
+                                        st.error(f"Failed to post comment to GitHub: {str(e)}")
+                        else:
+                            st.caption("_No ticket yet for this finding — cannot post comment._")
 
     # --- Assign the ticket, right from here — the one write action this
     # dashboard performs; everything else on the page stays read-only. ---
@@ -416,7 +514,7 @@ else:
     st.info("No findings match the current filters.")
 
 # --- Severity distribution & scanner overlap --------------------------
-with st.expander("📈 Statistics"):
+with st.expander("Statistics"):
     col_a, col_b = st.columns(2)
 
     with col_a:
@@ -427,7 +525,7 @@ with st.expander("📈 Statistics"):
             marker_color=[SCANNER_COLORS.get(s, "#898781") for s in raw_counts.index],
         ))
         fig.update_layout(height=320, yaxis_gridcolor=GRID,
-                           margin=dict(l=10, r=10, t=10, b=10), **PLOTLY_DARK)
+                           margin=dict(l=10, r=10, t=10, b=10), **PLOTLY_THEME)
         st.plotly_chart(fig, use_container_width=True)
 
     with col_b:
@@ -439,7 +537,7 @@ with st.expander("📈 Statistics"):
             marker_color=[SLA_COLORS[t] for t in tier_order],
         ))
         fig.update_layout(height=320, yaxis_gridcolor=GRID,
-                           margin=dict(l=10, r=10, t=10, b=10), **PLOTLY_DARK)
+                           margin=dict(l=10, r=10, t=10, b=10), **PLOTLY_THEME)
         st.plotly_chart(fig, use_container_width=True)
 
     st.subheader("Scanner overlap on final findings")
@@ -451,7 +549,7 @@ with st.expander("📈 Statistics"):
     fig.update_layout(height=max(200, 40 * len(overlap_counts)), xaxis_gridcolor=GRID,
                        margin=dict(l=10, r=10, t=10, b=10),
                        xaxis_title="Findings", yaxis_title="Contributing scanner(s)",
-                       **PLOTLY_DARK)
+                       **PLOTLY_THEME)
     st.plotly_chart(fig, use_container_width=True)
 
 st.caption(f"Scan `{scan_id}` — dedup: {metrics.get('dedup_pct', 0)}%, "

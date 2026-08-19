@@ -164,28 +164,33 @@ def format_guidance_markdown(guidance: Union[RemediationGuidanceSchema, Dict[str
     if not refs_md:
         refs_md = "None available in finding context."
 
-    return f"""### 1. Vulnerability Summary
+    # Bold inline labels, not markdown headers (###) — this renders inside a
+    # compact answer panel (the Fix tab), and h3 there would inherit the
+    # page's own big section-header styling (border-bottom, large spacing)
+    # meant for top-level sections like "Ranked action list", making an AI
+    # answer look like a giant page section instead of part of the panel.
+    return f"""**1. Vulnerability Summary**
 {summary}
 
-### 2. Why It Matters
+**2. Why It Matters**
 {why_matters}
 
-### 3. Root Cause
+**3. Root Cause**
 {root_cause}
 
-### 4. Recommended Fix
+**4. Recommended Fix**
 {recommended_fix}
 
-### 5. Step-by-Step Resolution
+**5. Step-by-Step Resolution**
 {steps_md}
 
-### 6. Commands / Configuration
+**6. Commands / Configuration**
 {commands}
 
-### 7. Verification
+**7. Verification**
 {verification}
 
-### 8. References
+**8. References**
 {refs_md}
 """
 
