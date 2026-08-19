@@ -15,6 +15,17 @@ from ingest.schema import Finding
 _DEFAULT_BATCH_SIZE = 10
 
 
+def _clamp_confidence(raw) -> float | None:
+    """Gemini's structured output is schema-validated but not range-validated —
+    coerce to a plain float in [0, 1] so a stray out-of-range or non-numeric
+    value from the model can't leak into logs/reports as a bogus confidence."""
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return max(0.0, min(1.0, value))
+
+
 def resolve_candidates(findings: list[Finding], candidates: list[tuple[int, int, float]],
                         uf: UnionFind, edge_method: dict[frozenset, str],
                         log: list[dict]) -> None:
@@ -68,7 +79,7 @@ def resolve_candidates(findings: list[Finding], candidates: list[tuple[int, int,
                 "finding_b": findings[j].finding_id, "title_b": findings[j].title,
                 "fuzzy_score": fuzzy_score,
                 "llm_verdict": is_dup,
-                "llm_confidence": v.get("confidence"),
+                "llm_confidence": _clamp_confidence(v.get("confidence")),
                 "llm_reasoning": v.get("reasoning"),
             })
             if is_dup:
