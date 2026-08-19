@@ -11,6 +11,34 @@ def _finding(**kwargs) -> Finding:
     return Finding(**defaults)
 
 
+def test_union_find_merges_and_compresses_paths():
+    uf = UnionFind(6)
+    uf.union(0, 1)
+    uf.union(1, 2)
+    uf.union(3, 4)
+
+    assert uf.find(0) == uf.find(2)
+    assert uf.find(3) == uf.find(4)
+    assert uf.find(5) == 5  # untouched singleton stays its own root
+    assert uf.find(0) != uf.find(3)  # separate groups stay separate
+
+    uf.union(2, 4)
+    assert uf.find(0) == uf.find(4) == uf.find(1) == uf.find(3)
+
+
+def test_union_find_attaches_smaller_tree_to_larger():
+    uf = UnionFind(5)
+    uf.union(0, 1)
+    uf.union(0, 2)  # group {0,1,2} now has size 3, rooted at 0
+    uf.union(3, 4)  # group {3,4} has size 2
+
+    uf.union(0, 3)  # smaller group {3,4} should attach under the larger group's root
+    root = uf.find(0)
+    assert uf.find(3) == root
+    assert uf.find(4) == root
+    assert uf.size[root] == 5
+
+
 def test_exact_cve_host_merge():
     findings = [
         _finding(source_scanner="nuclei", title="Log4Shell RCE", cve_ids=["CVE-2021-44228"]),
